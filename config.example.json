@@ -1,0 +1,14 @@
+{
+  "listener": {
+    "port": 8000,
+    "mode": "passthrough"
+  },
+  "upstream": {
+    "base_url": "https://api.openai.com",
+    "api_key_env": "UPSTREAM_API_KEY"
+  },
+  "timeouts": {
+    "connect_seconds": 10,
+    "read_seconds": 120
+  }
+}
