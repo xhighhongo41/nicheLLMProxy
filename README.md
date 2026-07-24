@@ -1,23 +1,41 @@
 # nicheLLM Proxy
 
-nicheLLM Proxy relays HTTP requests and responses without transformation between an OpenAI-compatible client and an upstream LLM provider. Version 0.2 supports one listener in a trusted network.
+nicheLLM Proxy relays HTTP requests and responses without transformation between an OpenAI-compatible client and an upstream LLM provider. Version 0.3 supports one listener in a trusted network.
 
 [日本語版 README](README_ja.md)
 
-## Supported in v0.2
+## HTTP transport supported in v0.3
 
-- Pass-through forwarding for `GET`, `POST`, `PUT`, `PATCH`, `DELETE`, `HEAD`, and `OPTIONS`, preserving the request path, query, and body.
-- Relaying ordinary HTTP responses and streaming `text/event-stream` (SSE) responses without buffering or reconstruction.
-- Passing through upstream HTTP error status codes and bodies; returning safe 5xx responses for upstream connection and read failures.
-- `GET /health` for proxy liveness checks.
+- Pass-through forwarding for `GET`, `POST`, `PUT`, `PATCH`, `DELETE`, `HEAD`, and `OPTIONS`, preserving the request method, path, query, and body.
+- One raw HTTP pipeline for JSON, `text/event-stream` (SSE), multipart uploads, and binary request and response bodies. The proxy does not parse or reconstruct endpoint-specific bodies or SSE events.
+- Pass-through upstream status codes, including HTTP errors and `206 Partial Content` range responses, plus end-to-end response headers. Repeated end-to-end headers are retained.
+- Replace a client-supplied `Authorization` header with the configured upstream Bearer API key. Apart from `Host`, hop-by-hop headers, and the received `Authorization`, end-to-end request headers are forwarded.
+- `GET /health` for proxy liveness checks, and safe proxy-generated 5xx responses for upstream connection and read failures.
 - User-facing proxy messages in English (default) or Japanese.
+
+The following OpenAI API families are in the documented representative HTTP transport scope. This describes transport behavior only; acceptance of models, parameters, and feature semantics remains the responsibility of the upstream provider.
+
+|API family|Representative paths|Transport forms|
+|---|---|---|
+|Chat Completions|`/v1/chat/completions` and saved-completion subresources|JSON, SSE|
+|Responses|`/v1/responses` and response subresources|JSON, HTTP SSE|
+|Conversations|`/v1/conversations` and item subresources|JSON, pagination query|
+|Embeddings, Models, Moderations|`/v1/embeddings`, `/v1/models`, `/v1/moderations`|JSON|
+|Images and Audio|generation, edit, speech, transcription, and translation paths|JSON, multipart, SSE, binary|
+|Files and Uploads|`/v1/files`, `/v1/uploads`, and subresources|multipart, JSON, binary, Range/206|
+|Batches and Fine-tuning Jobs|their collection and operation subresources|JSON, asynchronous polling|
+|Vector Stores and Containers|their collection, file, and content subresources|JSON, multipart, binary|
+
+Other non-deprecated OpenAI HTTP endpoints are not blocked by the wildcard route, but are not individually listed as transport-tested APIs.
 
 ## Not supported
 
-- Protocol conversion, request transformation, ruri mode, logging, rate limiting, proxy authentication, TLS termination, or multiple listeners.
+- WebSocket, WebRTC, or SIP transport, including Realtime API and the Responses WebSocket mode. HTTP SSE is supported, but it is not a bidirectional WebSocket replacement.
+- Protocol conversion or provider adapters, including OpenAI/Anthropic protocol conversion and Azure, Gemini, or other provider-specific authentication or URL conversion.
+- Webhook receiving or signature verification, Administration API operations, request transformation, ruri mode, logging, rate limiting, proxy authentication, TLS termination, or multiple listeners.
 - Safe direct exposure to the public internet.
 
-The semantic compatibility of individual upstream endpoints and features depends on the upstream provider.
+The following APIs are not newly recommended or individually transport-tested in v0.3: Assistants (`/v1/assistants`, `/v1/threads`, `/v1/runs`), Videos API / Sora 2, Reusable Prompts, Evals API / Agent Builder, Legacy Completions, and Images Variations. The wildcard route may mechanically forward a path, but this does not make it a supported or recommended API.
 
 ## Configuration
 
@@ -46,7 +64,13 @@ Do not put an API key value in the configuration JSON. Specify only the environm
 |`NICHELLM_CONFIG_PATH`|No|Path to the configuration JSON. The default is `/app/config/config.json`; set it for host execution.|
 |`NICHELLM_LANGUAGE`|No|Language for proxy-generated messages: `en` (default) or `ja`. Values such as `ja-JP` are treated as `ja`; unsupported values fall back to English.|
 
-The proxy replaces a client-supplied `Authorization` header with the configured upstream API key. It does not translate or modify upstream response bodies, SSE events, headers, or status codes.
+The proxy replaces a client-supplied `Authorization` header with the configured upstream Bearer API key and does not forward the received value. It preserves repeated end-to-end headers. It does not apply a general credential-scrubbing policy to other provider-specific headers; operate it only in a trusted network.
+
+## Timeouts and long-running work
+
+`connect_seconds` limits the time to establish an upstream connection. `read_seconds` limits the wait for the next byte from the upstream; it is not a limit on the total duration of a response that continues to deliver data. Keep the configured timeout for HTTP SSE and ordinary HTTP responses.
+
+For background responses, batches, and fine-tuning jobs, create the job and poll its status from the client instead of holding one proxy connection indefinitely. Realtime and Responses WebSocket workloads require a separate bidirectional transport design and are not supported by v0.3.
 
 ## Run locally with uv
 
@@ -81,7 +105,7 @@ docker compose up --build -d
 curl http://127.0.0.1:8000/health
 ```
 
-Compose mounts `config.json` read-only at `/app/config/config.json` and publishes the service only on `127.0.0.1:8000`. Dockerfile builds and Docker Compose startup have been verified in a Docker-capable environment. Stop the service with:
+Compose mounts `config.json` read-only at `/app/config/config.json` and publishes the service only on `127.0.0.1:8000`. Stop the service with:
 
 ```bash
 docker compose down
@@ -91,11 +115,12 @@ docker compose down
 
 - Never commit API keys. Keep real values only in environment variables, `.env`, or Docker secrets.
 - Do not add `.env` or local `config.json` files to Git.
-- v0.2 has no proxy authentication or TLS termination. Keep it inside a trusted network and do not expose it directly to the internet.
+- v0.3 has no proxy authentication or TLS termination. Keep it inside a trusted network and do not expose it directly to the internet.
+- An upstream API's semantic compatibility, authorization policy, model availability, and account eligibility are not guaranteed by HTTP pass-through. In particular, Fine-tuning Job eligibility is determined by the upstream account.
 
 ## Tests
 
-Tests do not contact an external LLM provider or use a real API key.
+The test suite uses a simulated upstream; it does not contact an external LLM provider or use a real API key. It covers representative JSON, Responses SSE, multipart, binary, Range/206, duplicate-header, error, and lifecycle transport cases.
 
 ```bash
 uv sync --dev
@@ -114,9 +139,15 @@ msgfmt --check \
 
 ## Docker Hub
 
-v0.2 does not publish an image to Docker Hub. Container registry publication, tags, and CI-based distribution are planned for v1.0.
+v0.3 does not publish an image to Docker Hub. Container registry publication, tags, and CI-based distribution are planned for v1.0.
 
 ## Release history
+
+### v0.3.0 (2026-07-25)
+
+- Added raw HTTP pass-through coverage for JSON, Responses HTTP SSE, multipart, binary, Range/206, and repeated end-to-end headers.
+- Added the representative OpenAI API-family table and clear exclusions for bidirectional transports, protocol conversion, and deprecated or legacy APIs.
+- Clarified Authorization replacement, read-timeout behavior, and the boundary between HTTP transport and upstream semantic compatibility.
 
 ### v0.2.0 (2026-07-24)
 
