@@ -115,3 +115,11 @@ msgfmt --check \
 ## Docker Hub
 
 v0.2 does not publish an image to Docker Hub. Container registry publication, tags, and CI-based distribution are planned for v1.0.
+
+## Release history
+
+### v0.2.0 (2026-07-24)
+
+- Added English (default) and Japanese user-facing proxy messages through `gettext`.
+- Added the English primary README and the equivalent Japanese README.
+- Verified Docker Compose execution and the Japanese proxy-generated error response.
