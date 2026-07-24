@@ -1,4 +1,4 @@
-"""パススループロキシのHTTP中継テスト。"""
+"""Tests for HTTP relaying through the passthrough proxy."""
 
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ from niche_llm_proxy.config import ProxyConfig
 
 @pytest.mark.anyio
 async def test_health_does_not_contact_upstream(proxy_config: ProxyConfig) -> None:
-    """ヘルスチェックは上流へ転送しない。"""
+    """Do not forward health checks to the upstream."""
     contacted = False
 
     def upstream_handler(request: httpx.Request) -> httpx.Response:
@@ -41,7 +41,7 @@ async def test_health_does_not_contact_upstream(proxy_config: ProxyConfig) -> No
 async def test_passthrough_forwards_request_and_replaces_authorization(
     proxy_config: ProxyConfig,
 ) -> None:
-    """パス、クエリ、本文と必要なヘッダーを中継し、認証を置き換える。"""
+    """Relay path, query, body, and allowed headers while replacing authorization."""
     received: dict[str, Any] = {}
     upstream = FastAPI()
 
@@ -85,7 +85,7 @@ async def test_passthrough_forwards_request_and_replaces_authorization(
 async def test_passthrough_preserves_upstream_http_error(
     proxy_config: ProxyConfig,
 ) -> None:
-    """上流のHTTPエラーはステータスと本文を変えずに返す。"""
+    """Return upstream HTTP errors without changing status or body."""
     upstream = FastAPI()
 
     @upstream.get("/v1/models")
@@ -112,7 +112,7 @@ async def test_passthrough_preserves_upstream_http_error(
 async def test_passthrough_relays_sse_chunks_in_order(
     proxy_config: ProxyConfig,
 ) -> None:
-    """SSE応答の内容と順序を維持してクライアントへ返す。"""
+    """Relay SSE response contents and order unchanged to the client."""
     upstream = FastAPI()
 
     @upstream.post("/v1/chat/completions")
@@ -152,7 +152,7 @@ async def test_passthrough_returns_safe_errors_for_upstream_failures(
     status_code: int,
     detail: str,
 ) -> None:
-    """接続失敗とタイムアウトは安全な5xx応答へ変換する。"""
+    """Map connection failures and timeouts to safe 5xx responses."""
 
     def upstream_handler(request: httpx.Request) -> httpx.Response:
         raise type(error)(str(error), request=request)
@@ -166,4 +166,27 @@ async def test_passthrough_returns_safe_errors_for_upstream_failures(
 
     assert response.status_code == status_code
     assert detail in response.json()["detail"]
+    assert "upstream-secret" not in response.text
+
+
+@pytest.mark.anyio
+async def test_passthrough_localizes_proxy_generated_error_only(
+    monkeypatch: pytest.MonkeyPatch,
+    proxy_config: ProxyConfig,
+) -> None:
+    """Japanese changes only the proxy-generated error detail, not upstream payloads."""
+    monkeypatch.setenv("NICHELLM_LANGUAGE", "ja")
+
+    def upstream_handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("unreachable", request=request)
+
+    app = create_app(proxy_config, httpx.MockTransport(upstream_handler))
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app),
+        base_url="http://proxy.test",
+    ) as client:
+        response = await client.post("/v1/chat/completions", json={"hello": "world"})
+
+    assert response.status_code == 502
+    assert response.json() == {"detail": "上流プロバイダーへ接続できません。"}
     assert "upstream-secret" not in response.text

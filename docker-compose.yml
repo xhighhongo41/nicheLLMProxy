@@ -6,6 +6,7 @@ services:
       - "127.0.0.1:8000:8000"
     environment:
       NICHELLM_CONFIG_PATH: /app/config/config.json
+      NICHELLM_LANGUAGE: ${NICHELLM_LANGUAGE:-en}
       UPSTREAM_API_KEY: ${UPSTREAM_API_KEY:?UPSTREAM_API_KEY must be set}
     volumes:
       - ./config.json:/app/config/config.json:ro

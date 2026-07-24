@@ -1,4 +1,4 @@
-"""OpenAI互換の上流へHTTPリクエストを非変換で中継する処理。"""
+"""Relay HTTP requests unchanged to an OpenAI-compatible upstream."""
 
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ import httpx
 from starlette.datastructures import Headers
 
 from niche_llm_proxy.config import ProxyConfig
+from niche_llm_proxy.i18n import translate
 
 _HOP_BY_HOP_HEADERS = {
     "connection",
@@ -22,13 +23,13 @@ _HOP_BY_HOP_HEADERS = {
 
 
 def build_upstream_url(base_url: str, path: str, query: str) -> str:
-    """上流ベースURLへ受信パスとクエリを結合する。"""
+    """Join an incoming path and query to the upstream base URL."""
     url = f"{base_url.rstrip('/')}/{path.lstrip('/')}"
     return f"{url}?{query}" if query else url
 
 
 def prepare_request_headers(headers: Headers, api_key: str) -> dict[str, str]:
-    """転送可能なヘッダーを選別し、上流用認証情報へ置き換える。"""
+    """Select forwardable headers and replace upstream credentials."""
     connection_header = headers.get("connection", "")
     connection_tokens = {
         value.strip().lower()
@@ -47,7 +48,7 @@ def prepare_request_headers(headers: Headers, api_key: str) -> dict[str, str]:
 
 
 def prepare_response_headers(headers: httpx.Headers) -> dict[str, str]:
-    """クライアントへ返してよい上流レスポンスヘッダーを抽出する。"""
+    """Select upstream response headers that may be returned to the client."""
     return {
         name: value
         for name, value in headers.items()
@@ -59,7 +60,7 @@ async def stream_response(
     response: httpx.Response,
     client: httpx.AsyncClient,
 ) -> AsyncIterator[bytes]:
-    """上流応答を逐次返し、送信完了・切断時にも接続を閉じる。"""
+    """Yield an upstream response and close connections after completion or disconnect."""
     try:
         async for chunk in response.aiter_raw():
             yield chunk
@@ -72,7 +73,7 @@ def create_http_client(
     config: ProxyConfig,
     transport: httpx.AsyncBaseTransport | None = None,
 ) -> httpx.AsyncClient:
-    """設定済みの上流通信クライアントを生成する。"""
+    """Create an upstream HTTP client using the configured timeouts."""
     timeout = httpx.Timeout(
         timeout=config.timeouts.read_seconds,
         connect=config.timeouts.connect_seconds,
@@ -85,7 +86,7 @@ def create_http_client(
 
 
 def upstream_error_detail(error: httpx.RequestError) -> tuple[int, Mapping[str, str]]:
-    """上流通信例外を、秘密情報を含まないプロキシのエラー内容へ変換する。"""
+    """Map an upstream communication error to a proxy error without secrets."""
     if isinstance(error, httpx.TimeoutException):
-        return 504, {"detail": "The upstream provider timed out."}
-    return 502, {"detail": "Unable to connect to the upstream provider."}
+        return 504, {"detail": translate("The upstream provider timed out.")}
+    return 502, {"detail": translate("Unable to connect to the upstream provider.")}

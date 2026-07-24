@@ -1,4 +1,4 @@
-"""nicheLLM ProxyのASGIアプリケーション。"""
+"""ASGI application for nicheLLM Proxy."""
 
 from __future__ import annotations
 
@@ -23,13 +23,13 @@ def create_app(
     config: ProxyConfig,
     upstream_transport: httpx.AsyncBaseTransport | None = None,
 ) -> FastAPI:
-    """指定設定のパススルー用ASGIアプリケーションを生成する。"""
-    app = FastAPI(title="nicheLLM Proxy", version="0.1.0", docs_url=None, redoc_url=None)
+    """Create a passthrough ASGI application for the supplied configuration."""
+    app = FastAPI(title="nicheLLM Proxy", version="0.2.0", docs_url=None, redoc_url=None)
     app.state.proxy_config = config
 
     @app.get("/health")
     async def health() -> dict[str, str]:
-        """プロキシ自身の生存状態を返す。"""
+        """Return the proxy's liveness state."""
         return {"status": "ok"}
 
     @app.api_route(
@@ -38,8 +38,8 @@ def create_app(
         response_model=None,
     )
     async def passthrough(path: str, request: Request) -> StreamingResponse | JSONResponse:
-        """受信HTTPリクエストを上流へ非変換で中継する。"""
-        del path  # URLはRequestから取得し、ルートパラメータとの乖離を防ぐ。
+        """Relay an incoming HTTP request to the upstream without transformation."""
+        del path  # Use the Request URL to avoid divergence from the route parameter.
         client = create_http_client(config, transport=upstream_transport)
         upstream_url = build_upstream_url(
             config.upstream.base_url,

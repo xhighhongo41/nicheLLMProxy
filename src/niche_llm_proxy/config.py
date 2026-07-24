@@ -1,4 +1,4 @@
-"""nicheLLM Proxy の起動設定を安全に読み込む。"""
+"""Load nicheLLM Proxy startup configuration safely."""
 
 from __future__ import annotations
 
@@ -11,24 +11,26 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
+from niche_llm_proxy.i18n import translate
+
 
 DEFAULT_CONFIG_PATH = Path("/app/config/config.json")
-"""環境変数で指定されない場合に使う設定ファイルのパス。"""
+"""Default configuration file path when no environment override is set."""
 
 DEFAULT_CONNECT_TIMEOUT_SECONDS = 10.0
-"""上流への接続タイムアウトの既定値（秒）。"""
+"""Default upstream connection timeout in seconds."""
 
 DEFAULT_READ_TIMEOUT_SECONDS = 120.0
-"""上流からの読取タイムアウトの既定値（秒）。"""
+"""Default upstream read timeout in seconds."""
 
 
 class ConfigError(ValueError):
-    """起動に必要な設定が不正または不足している場合の例外。"""
+    """Raised when required startup configuration is invalid or missing."""
 
 
 @dataclass(frozen=True)
 class ListenerConfig:
-    """単一 listener の待受設定。"""
+    """Listening configuration for a single listener."""
 
     port: int
     mode: str
@@ -36,7 +38,7 @@ class ListenerConfig:
 
 @dataclass(frozen=True)
 class TimeoutConfig:
-    """上流通信に使用するタイムアウト設定。"""
+    """Timeout configuration for upstream communication."""
 
     connect_seconds: float = DEFAULT_CONNECT_TIMEOUT_SECONDS
     read_seconds: float = DEFAULT_READ_TIMEOUT_SECONDS
@@ -44,7 +46,7 @@ class TimeoutConfig:
 
 @dataclass(frozen=True)
 class UpstreamConfig:
-    """上流 OpenAI 互換 API への接続設定。"""
+    """Connection configuration for the upstream OpenAI-compatible API."""
 
     base_url: str
     api_key_env: str
@@ -53,7 +55,7 @@ class UpstreamConfig:
 
 @dataclass(frozen=True)
 class ProxyConfig:
-    """nicheLLM Proxy の検証済み起動設定。"""
+    """Validated startup configuration for nicheLLM Proxy."""
 
     listener: ListenerConfig
     upstream: UpstreamConfig
@@ -61,13 +63,13 @@ class ProxyConfig:
 
 
 def get_config_path(environ: Mapping[str, str] | None = None) -> Path:
-    """環境変数を反映した設定ファイルのパスを返す。
+    """Return the configuration file path after applying an environment override.
 
     Args:
-        environ: 参照する環境変数。省略時はプロセス環境を使う。
+        environ: Environment variables to read. Uses the process environment by default.
 
     Returns:
-        `NICHELLM_CONFIG_PATH` または既定の設定ファイルパス。
+        `NICHELLM_CONFIG_PATH` or the default configuration file path.
     """
 
     environment = os.environ if environ is None else environ
@@ -79,19 +81,19 @@ def load_config(
     config_path: str | Path | None = None,
     environ: Mapping[str, str] | None = None,
 ) -> ProxyConfig:
-    """JSONファイルと環境変数から検証済みのプロキシ設定を読み込む。
+    """Load validated proxy configuration from JSON and environment variables.
 
-    API キーの値は環境変数からのみ読み込み、例外メッセージには含めない。
+    API key values are read only from environment variables and are excluded from errors.
 
     Args:
-        config_path: 設定ファイルのパス。省略時は環境変数または既定値を使う。
-        environ: 参照する環境変数。省略時はプロセス環境を使う。
+        config_path: Configuration file path. Uses the environment or default path if omitted.
+        environ: Environment variables to read. Uses the process environment by default.
 
     Raises:
-        ConfigError: 設定ファイル、設定値、または API キーが不正な場合。
+        ConfigError: If the configuration file, settings, or API key are invalid.
 
     Returns:
-        起動に使用できる検証済み設定。
+        Validated configuration ready for startup.
     """
 
     environment = os.environ if environ is None else environ
@@ -110,7 +112,10 @@ def load_config(
     api_key = environment.get(api_key_env)
     if not api_key:
         raise ConfigError(
-            f"上流 API キー環境変数 '{api_key_env}' が設定されていません。"
+            translate(
+                "Upstream API key environment variable '{api_key_env}' is not set.",
+                api_key_env=api_key_env,
+            )
         )
 
     upstream = UpstreamConfig(
@@ -134,32 +139,36 @@ def load_config(
 
 
 def _read_json_object(path: Path) -> Mapping[str, Any]:
-    """設定ファイルを読み込み、最上位の JSON オブジェクトを返す。"""
+    """Read a configuration file and return its top-level JSON object."""
 
     try:
         with path.open(encoding="utf-8") as config_file:
             value = json.load(config_file)
     except FileNotFoundError as error:
-        raise ConfigError(f"設定ファイルが見つかりません: {path}") from error
+        raise ConfigError(
+            translate("Configuration file was not found: {path}", path=path)
+        ) from error
     except (OSError, json.JSONDecodeError) as error:
-        raise ConfigError("設定 JSON を読み込めません。") from error
+        raise ConfigError(translate("Unable to read the configuration JSON.")) from error
 
     if not isinstance(value, dict):
-        raise ConfigError("設定 JSON の最上位はオブジェクトである必要があります。")
+        raise ConfigError(translate("Top-level configuration JSON must be an object."))
     return value
 
 
 def _required_object(config: Mapping[str, Any], key: str) -> Mapping[str, Any]:
-    """必須のオブジェクト設定を取得する。"""
+    """Return a required object-valued configuration item."""
 
     value = config.get(key)
     if not isinstance(value, dict):
-        raise ConfigError(f"設定項目 '{key}' はオブジェクトである必要があります。")
+        raise ConfigError(
+            translate("Configuration item '{key}' must be an object.", key=key)
+        )
     return value
 
 
 def _optional_object(config: Mapping[str, Any], key: str) -> Mapping[str, Any]:
-    """任意のオブジェクト設定を取得し、未指定時は空の設定を返す。"""
+    """Return an optional object-valued item or an empty mapping when absent."""
 
     if key not in config:
         return {}
@@ -167,34 +176,36 @@ def _optional_object(config: Mapping[str, Any], key: str) -> Mapping[str, Any]:
 
 
 def _port(listener: Mapping[str, Any]) -> int:
-    """listener のポート番号を検証して返す。"""
+    """Validate and return the listener port."""
 
     value = listener.get("port")
     if isinstance(value, bool) or not isinstance(value, int) or not 1 <= value <= 65535:
-        raise ConfigError("listener.port は 1 から 65535 の整数である必要があります。")
+        raise ConfigError(
+            translate("listener.port must be an integer between 1 and 65535.")
+        )
     return value
 
 
 def _passthrough_mode(listener: Mapping[str, Any]) -> str:
-    """v0.1 で対応する listener mode を検証して返す。"""
+    """Validate and return the listener mode supported in v0.1."""
 
     mode = listener.get("mode")
     if mode != "passthrough":
-        raise ConfigError("listener.mode は 'passthrough' である必要があります。")
+        raise ConfigError(translate("listener.mode must be 'passthrough'."))
     return mode
 
 
 def _base_url(upstream: Mapping[str, Any]) -> str:
-    """上流 URL の形式を検証して返す。"""
+    """Validate and return the upstream URL."""
 
     value = _non_empty_string(upstream, "base_url")
     try:
         parsed = urlparse(value)
-        # 不正なポート番号や IPv6 リテラルは属性参照時に検出される。
+        # Invalid ports and IPv6 literals are detected when accessing this attribute.
         parsed.port
     except ValueError as error:
         raise ConfigError(
-            "upstream.base_url は有効な http/https URL である必要があります。"
+            translate("upstream.base_url must be a valid HTTP(S) URL.")
         ) from error
     if (
         parsed.scheme not in {"http", "https"}
@@ -203,17 +214,24 @@ def _base_url(upstream: Mapping[str, Any]) -> str:
         or parsed.fragment
     ):
         raise ConfigError(
-            "upstream.base_url はクエリ・フラグメントを含まない http/https URL である必要があります。"
+            translate(
+                "upstream.base_url must be an HTTP(S) URL without a query or fragment."
+            )
         )
     return value
 
 
 def _non_empty_string(config: Mapping[str, Any], key: str) -> str:
-    """空でない文字列の設定値を検証して返す。"""
+    """Validate and return a non-empty string configuration value."""
 
     value = config.get(key)
     if not isinstance(value, str) or not value.strip():
-        raise ConfigError(f"設定項目 '{key}' は空でない文字列である必要があります。")
+        raise ConfigError(
+            translate(
+                "Configuration item '{key}' must be a non-empty string.",
+                key=key,
+            )
+        )
     return value
 
 
@@ -222,7 +240,7 @@ def _positive_number(
     key: str,
     default: float,
 ) -> float:
-    """正の数値の任意設定を検証して返す。"""
+    """Validate and return an optional positive numeric setting."""
 
     if key not in config:
         return default
@@ -234,5 +252,7 @@ def _positive_number(
         or not math.isfinite(value)
         or value <= 0
     ):
-        raise ConfigError(f"timeouts.{key} は 0 より大きい数値である必要があります。")
+        raise ConfigError(
+            translate("timeouts.{key} must be a positive number.", key=key)
+        )
     return float(value)

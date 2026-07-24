@@ -1,0 +1,52 @@
+msgid ""
+msgstr ""
+"Project-Id-Version: nicheLLM Proxy 0.2.0\n"
+"PO-Revision-Date: 2026-07-24 00:00+0000\n"
+"Last-Translator: nicheLLM Proxy contributors\n"
+"Language-Team: Japanese\n"
+"Language: ja\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+msgid "Configuration error: {error}"
+msgstr "設定エラー: {error}"
+
+msgid "Upstream API key environment variable '{api_key_env}' is not set."
+msgstr "上流APIキーの環境変数 '{api_key_env}' が設定されていません。"
+
+msgid "Configuration file was not found: {path}"
+msgstr "設定ファイルが見つかりません: {path}"
+
+msgid "Unable to read the configuration JSON."
+msgstr "設定JSONを読み込めません。"
+
+msgid "Top-level configuration JSON must be an object."
+msgstr "設定JSONの最上位はオブジェクトである必要があります。"
+
+msgid "Configuration item '{key}' must be an object."
+msgstr "設定項目 '{key}' はオブジェクトである必要があります。"
+
+msgid "listener.port must be an integer between 1 and 65535."
+msgstr "listener.port は1から65535までの整数である必要があります。"
+
+msgid "listener.mode must be 'passthrough'."
+msgstr "listener.mode は 'passthrough' である必要があります。"
+
+msgid "upstream.base_url must be a valid HTTP(S) URL."
+msgstr "upstream.base_url は有効なHTTP(S) URLである必要があります。"
+
+msgid "upstream.base_url must be an HTTP(S) URL without a query or fragment."
+msgstr "upstream.base_url はクエリとフラグメントを含まないHTTP(S) URLである必要があります。"
+
+msgid "Configuration item '{key}' must be a non-empty string."
+msgstr "設定項目 '{key}' は空でない文字列である必要があります。"
+
+msgid "timeouts.{key} must be a positive number."
+msgstr "timeouts.{key} は0より大きい数値である必要があります。"
+
+msgid "The upstream provider timed out."
+msgstr "上流プロバイダーがタイムアウトしました。"
+
+msgid "Unable to connect to the upstream provider."
+msgstr "上流プロバイダーへ接続できません。"

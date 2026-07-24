@@ -1,4 +1,4 @@
-"""nicheLLM Proxyのコマンドライン起動処理。"""
+"""Command-line startup for nicheLLM Proxy."""
 
 from __future__ import annotations
 
@@ -8,14 +8,15 @@ import uvicorn
 
 from niche_llm_proxy.app import create_app
 from niche_llm_proxy.config import ConfigError, load_config
+from niche_llm_proxy.i18n import translate
 
 
 def main() -> None:
-    """設定を検証してからASGIサーバーを起動する。"""
+    """Validate configuration before starting the ASGI server."""
     try:
         config = load_config()
     except ConfigError as error:
-        print(f"Configuration error: {error}", file=sys.stderr)
+        print(translate("Configuration error: {error}", error=error), file=sys.stderr)
         raise SystemExit(2) from error
 
     uvicorn.run(create_app(config), host="0.0.0.0", port=config.listener.port)

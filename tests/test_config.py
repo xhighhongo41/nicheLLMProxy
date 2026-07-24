@@ -1,4 +1,4 @@
-"""設定ファイルと秘密情報の検証テスト。"""
+"""Tests for configuration and secret validation."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ def test_load_config_reads_valid_settings(
     monkeypatch: pytest.MonkeyPatch,
     write_config: Callable[[dict[str, object] | None], Path],
 ) -> None:
-    """有効な設定と環境変数から設定オブジェクトを作る。"""
+    """Create a configuration object from valid settings and environment variables."""
     monkeypatch.setenv("UPSTREAM_API_KEY", "secret-value")
     config = load_config(write_config())
 
@@ -40,7 +40,7 @@ def test_load_config_rejects_invalid_settings(
     settings: dict[str, object],
     message: str,
 ) -> None:
-    """不正な必須設定を起動前に拒否する。"""
+    """Reject invalid required settings before startup."""
     complete_settings: dict[str, object] = {
         "listener": {"port": 8000, "mode": "passthrough"},
         "upstream": {
@@ -60,7 +60,7 @@ def test_load_config_rejects_invalid_settings(
 def test_load_config_does_not_expose_missing_key_value(
     tmp_path: Path,
 ) -> None:
-    """キー未設定のエラーに秘密値を含めない。"""
+    """Do not expose a secret value in an error about a missing key."""
     config_path = tmp_path / "config.json"
     config_path.write_text(
         json.dumps(
@@ -83,7 +83,7 @@ def test_load_config_does_not_expose_missing_key_value(
 
 
 def test_get_config_path_honors_environment_override() -> None:
-    """設定ファイルパスは専用環境変数で上書きできる。"""
+    """Allow the dedicated environment variable to override the config path."""
     assert get_config_path({"NICHELLM_CONFIG_PATH": "/tmp/custom.json"}) == Path(
         "/tmp/custom.json"
     )
