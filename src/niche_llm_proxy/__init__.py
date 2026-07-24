@@ -1,4 +1,4 @@
-"""nicheLLM Proxy のパッケージ。"""
+"""nicheLLM Proxy package."""
 
 from .config import (
     DEFAULT_CONFIG_PATH,

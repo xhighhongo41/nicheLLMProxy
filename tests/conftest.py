@@ -1,4 +1,4 @@
-"""nicheLLM Proxyのテスト共通フィクスチャ。"""
+"""Shared test fixtures for nicheLLM Proxy."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ from niche_llm_proxy.config import ProxyConfig, load_config
 
 @pytest.fixture
 def write_config(tmp_path: Path) -> Callable[[dict[str, object]], Path]:
-    """テスト用設定JSONを書き出す関数を返す。"""
+    """Return a function that writes test configuration JSON."""
 
     def _write_config(overrides: dict[str, object] | None = None) -> Path:
         settings: dict[str, object] = {
@@ -38,6 +38,6 @@ def proxy_config(
     monkeypatch: pytest.MonkeyPatch,
     write_config: Callable[[dict[str, object]], Path],
 ) -> ProxyConfig:
-    """上流キーを持つ有効なプロキシ設定を返す。"""
+    """Return valid proxy configuration with an upstream key."""
     monkeypatch.setenv("UPSTREAM_API_KEY", "upstream-secret")
     return load_config(write_config())

@@ -52,8 +52,7 @@ coverage.xml
 .pytest_cache/
 cover/
 
-# Translations
-*.mo
+# Translation templates
 *.pot
 
 # Django stuff:
@@ -151,6 +150,8 @@ activemq-data/
 
 # Environments
 .env
+.env.*
+!.env.example
 .envrc
 .venv
 env/
@@ -222,3 +223,5 @@ __marimo__/
 PROJECT.md
 開発資料/
 config.json
+config.local.json
+.DS_Store

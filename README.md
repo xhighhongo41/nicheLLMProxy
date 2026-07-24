@@ -1,25 +1,27 @@
 # nicheLLM Proxy
 
-OpenAI互換APIを利用するクライアントと上流LLMプロバイダの間で、HTTPリクエストとレスポンスを変換せずに中継するプロキシです。v0.1では、信頼できるネットワーク内での単一listener運用を対象にしています。
+nicheLLM Proxy relays HTTP requests and responses without transformation between an OpenAI-compatible client and an upstream LLM provider. Version 0.2 supports one listener in a trusted network.
 
-## v0.1でサポートすること
+[日本語版 README](README_ja.md)
 
-- GET、POST、PUT、PATCH、DELETE、HEAD、OPTIONSのHTTPメソッドと、任意のパス・クエリ・本文を上流のOpenAI互換APIへパススルー
-- 通常のHTTP応答およびSSE（`text/event-stream`）応答のストリーミング中継
-- 上流のHTTPエラーの透過、中継不能な接続・読取エラーの安全な5xx応答
-- `GET /health` のヘルスチェック
+## Supported in v0.2
 
-## v0.1でサポートしないこと
+- Pass-through forwarding for `GET`, `POST`, `PUT`, `PATCH`, `DELETE`, `HEAD`, and `OPTIONS`, preserving the request path, query, and body.
+- Relaying ordinary HTTP responses and streaming `text/event-stream` (SSE) responses without buffering or reconstruction.
+- Passing through upstream HTTP error status codes and bodies; returning safe 5xx responses for upstream connection and read failures.
+- `GET /health` for proxy liveness checks.
+- User-facing proxy messages in English (default) or Japanese.
 
-- OpenAI/Anthropic間などのプロトコル変換、リクエスト改変、ruri mode
-- ロギング、レート制限、プロキシ自身の認証、TLS終端、複数listener
-- インターネットへの安全な直接公開
+## Not supported
 
-上流APIの個別エンドポイント・機能の意味的な互換性は、上流プロバイダに依存します。
+- Protocol conversion, request transformation, ruri mode, logging, rate limiting, proxy authentication, TLS termination, or multiple listeners.
+- Safe direct exposure to the public internet.
 
-## 設定
+The semantic compatibility of individual upstream endpoints and features depends on the upstream provider.
 
-設定JSONにはAPIキーの値を書かず、**環境変数名だけ**を指定します。次は `config.json` の例です。
+## Configuration
+
+Do not put an API key value in the configuration JSON. Specify only the environment variable that contains it.
 
 ```json
 {
@@ -38,65 +40,78 @@ OpenAI互換APIを利用するクライアントと上流LLMプロバイダの�
 }
 ```
 
-|環境変数|必須|用途|
+|Environment variable|Required|Purpose|
 |---|---|---|
-|`UPSTREAM_API_KEY`|はい|上流プロバイダへ送るAPIキー。設定の `api_key_env` と同じ名前にする。|
-|`NICHELLM_CONFIG_PATH`|いいえ|設定JSONのパス。既定値は `/app/config/config.json`。ホスト実行時は設定ファイルのパスを必ず指定する。|
+|`UPSTREAM_API_KEY`|Yes|API key sent to the upstream provider. Its name must match `api_key_env`.|
+|`NICHELLM_CONFIG_PATH`|No|Path to the configuration JSON. The default is `/app/config/config.json`; set it for host execution.|
+|`NICHELLM_LANGUAGE`|No|Language for proxy-generated messages: `en` (default) or `ja`. Values such as `ja-JP` are treated as `ja`; unsupported values fall back to English.|
 
-クライアントが送る `Authorization` ヘッダーは、上記の上流APIキーで置き換えられます。
+The proxy replaces a client-supplied `Authorization` header with the configured upstream API key. It does not translate or modify upstream response bodies, SSE events, headers, or status codes.
 
-## ローカルでの起動（uv）
+## Run locally with uv
 
-[uv](https://docs.astral.sh/uv/) を使うと、プロジェクト内の仮想環境で実行できます。グローバルなPythonパッケージのインストールは不要です。
+[uv](https://docs.astral.sh/uv/) creates and uses a project-local virtual environment.
 
 ```bash
 cp config.example.json config.json
-# config.json の upstream.base_url を利用する上流APIに合わせて編集する
-export UPSTREAM_API_KEY='上流APIキー'
+# Set upstream.base_url in config.json for the provider you use.
+export UPSTREAM_API_KEY='your-upstream-api-key'
 export NICHELLM_CONFIG_PATH="$PWD/config.json"
+export NICHELLM_LANGUAGE=ja  # optional; English is the default
 uv sync --dev
 uv run niche-llm-proxy
 ```
 
-別のターミナルから、起動を確認できます。
+From another terminal, check the proxy:
 
 ```bash
 curl http://127.0.0.1:8000/health
 ```
 
-## Docker Composeでの起動
+## Run with Docker Compose
 
-DockerイメージにはAPIキーも設定JSONも含めません。実行するホストに設定ファイルを用意してから起動してください。
+The Docker image does not contain an API key or configuration JSON. Create them on the host before starting the service.
 
 ```bash
 cp config.example.json config.json
-# config.json の upstream.base_url を編集する
-export UPSTREAM_API_KEY='上流APIキー'
+# Set upstream.base_url in config.json.
+export UPSTREAM_API_KEY='your-upstream-api-key'
+export NICHELLM_LANGUAGE=ja  # optional; English is the default
 docker compose up --build -d
 curl http://127.0.0.1:8000/health
 ```
 
-Composeは `config.json` をコンテナ内の `/app/config/config.json` へ**読み取り専用**でマウントし、公開ポートを `127.0.0.1:8000` に限定します。停止は次のとおりです。
+Compose mounts `config.json` read-only at `/app/config/config.json` and publishes the service only on `127.0.0.1:8000`. Dockerfile builds and Docker Compose startup have been verified in a Docker-capable environment. Stop the service with:
 
 ```bash
 docker compose down
 ```
 
-## セキュリティ
+## Security
 
-- APIキーを `config.json`、Dockerfile、Composeファイル、リポジトリに書き込まないでください。環境変数またはDocker secretsで渡してください。
-- `.env` とローカルの `config.json` はGitに追加しないでください。
-- v0.1にはプロキシ自身の認証・TLS終端がありません。外部ネットワークへ公開せず、信頼できるネットワーク内だけで利用してください。
+- Never commit API keys. Keep real values only in environment variables, `.env`, or Docker secrets.
+- Do not add `.env` or local `config.json` files to Git.
+- v0.2 has no proxy authentication or TLS termination. Keep it inside a trusted network and do not expose it directly to the internet.
 
-## テスト
+## Tests
 
-テストは外部LLMプロバイダや実APIキーを使用しません。
+Tests do not contact an external LLM provider or use a real API key.
 
 ```bash
 uv sync --dev
 uv run pytest
 ```
 
+## Translation catalogs
+
+The runtime uses Python's standard `gettext` module. English message IDs are the fallback, and the Japanese catalog is stored in `src/niche_llm_proxy/locales/ja/LC_MESSAGES/`. After editing the `.po` file, regenerate the versioned `.mo` catalog with GNU gettext:
+
+```bash
+msgfmt --check \
+  --output-file src/niche_llm_proxy/locales/ja/LC_MESSAGES/niche_llm_proxy.mo \
+  src/niche_llm_proxy/locales/ja/LC_MESSAGES/niche_llm_proxy.po
+```
+
 ## Docker Hub
 
-v0.1ではDocker Hubへイメージを公開しません。Docker Hubでの公開、タグ運用、CIによる配布はv1.0で導入予定です。
+v0.2 does not publish an image to Docker Hub. Container registry publication, tags, and CI-based distribution are planned for v1.0.

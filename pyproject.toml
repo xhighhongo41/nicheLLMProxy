@@ -4,8 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "niche-llm-proxy"
-version = "0.1.0"
-description = "OpenAI互換API向けの拡張可能なLLMプロキシ"
+version = "0.2.0"
+description = "An extensible LLM proxy for OpenAI-compatible APIs"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
@@ -25,3 +25,7 @@ niche-llm-proxy = "niche_llm_proxy.main:main"
 [tool.pytest.ini_options]
 pythonpath = ["src"]
 testpaths = ["tests"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/niche_llm_proxy"]
+artifacts = ["src/niche_llm_proxy/locales/**/*.mo"]
