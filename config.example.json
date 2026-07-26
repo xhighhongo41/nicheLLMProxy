@@ -1,7 +1,30 @@
 {
   "listener": {
     "port": 8000,
-    "mode": "passthrough"
+    "mode": "passthrough",
+    "features": [
+      {
+        "name": "logging",
+        "config": {
+          "stdout": true,
+          "file": {
+            "enabled": true,
+            "path": "/var/log/nichellm/proxy.jsonl",
+            "max_bytes": 10485760,
+            "backup_count": 5
+          },
+          "capture": {
+            "bodies": false,
+            "max_body_bytes": 1048576
+          },
+          "redaction": {
+            "additional_header_names": [],
+            "additional_query_parameter_names": [],
+            "additional_json_field_names": []
+          }
+        }
+      }
+    ]
   },
   "upstream": {
     "base_url": "https://api.openai.com",

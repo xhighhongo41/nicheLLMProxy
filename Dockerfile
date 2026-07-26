@@ -21,6 +21,9 @@ RUN uv sync --frozen --no-dev --no-install-project
 COPY src ./src
 RUN uv sync --frozen --no-dev
 
+RUN mkdir -p /var/log/nichellm \
+    && chown -R nichellm:nichellm /var/log/nichellm
+
 USER nichellm
 
 EXPOSE 8000

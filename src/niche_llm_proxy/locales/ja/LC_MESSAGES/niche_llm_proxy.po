@@ -1,7 +1,7 @@
 msgid ""
 msgstr ""
-"Project-Id-Version: nicheLLM Proxy 0.2.0\n"
-"PO-Revision-Date: 2026-07-24 00:00+0000\n"
+"Project-Id-Version: nicheLLM Proxy 1.0.0\n"
+"PO-Revision-Date: 2026-07-26 00:00+0000\n"
 "Last-Translator: nicheLLM Proxy contributors\n"
 "Language-Team: Japanese\n"
 "Language: ja\n"
@@ -33,6 +33,30 @@ msgstr "listener.port は1から65535までの整数である必要がありま�
 msgid "listener.mode must be 'passthrough'."
 msgstr "listener.mode は 'passthrough' である必要があります。"
 
+msgid "listener.features must be an array."
+msgstr "listener.features は配列である必要があります。"
+
+msgid "Each listener.features item must be an object."
+msgstr "listener.features の各項目はオブジェクトである必要があります。"
+
+msgid "listener.features supports only 'logging'."
+msgstr "listener.features で指定できるのは 'logging' だけです。"
+
+msgid "listener.features must not contain duplicate 'logging'."
+msgstr "listener.features に 'logging' を重複して指定できません。"
+
+msgid "logging feature config must be an object."
+msgstr "logging フィーチャーのconfigはオブジェクトである必要があります。"
+
+msgid "logging must enable stdout or file output."
+msgstr "loggingではstdoutまたはfile出力を有効にする必要があります。"
+
+msgid "logging.file.path must be an absolute path."
+msgstr "logging.file.path は絶対パスである必要があります。"
+
+msgid "logging.capture.max_body_bytes must not exceed {maximum}."
+msgstr "logging.capture.max_body_bytes は {maximum} 以下である必要があります。"
+
 msgid "upstream.base_url must be a valid HTTP(S) URL."
 msgstr "upstream.base_url は有効なHTTP(S) URLである必要があります。"
 
@@ -41,6 +65,18 @@ msgstr "upstream.base_url はクエリとフラグメントを含まないHTTP(S
 
 msgid "Configuration item '{key}' must be a non-empty string."
 msgstr "設定項目 '{key}' は空でない文字列である必要があります。"
+
+msgid "Configuration item '{key}' must be a boolean."
+msgstr "設定項目 '{key}' は真偽値である必要があります。"
+
+msgid "Configuration item '{key}' must be a positive integer."
+msgstr "設定項目 '{key}' は0より大きい整数である必要があります。"
+
+msgid "Configuration item '{key}' must be an array of names."
+msgstr "設定項目 '{key}' は名前の配列である必要があります。"
+
+msgid "Configuration item '{context}' has unknown fields: {fields}."
+msgstr "設定項目 '{context}' に未知のフィールドがあります: {fields}。"
 
 msgid "timeouts.{key} must be a positive number."
 msgstr "timeouts.{key} は0より大きい数値である必要があります。"

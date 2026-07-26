@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator, Mapping, Sequence
+import asyncio
+from collections.abc import AsyncIterator, Callable, Mapping, Sequence
 
 import httpx
 from starlette.datastructures import Headers
@@ -76,11 +77,32 @@ def prepare_response_headers(headers: httpx.Headers) -> HeaderPairs:
 async def stream_response(
     response: httpx.Response,
     client: httpx.AsyncClient,
+    on_chunk: Callable[[bytes], None] | None = None,
+    on_complete: Callable[[], None] | None = None,
+    on_error: Callable[[BaseException], None] | None = None,
+    on_cancel: Callable[[], None] | None = None,
 ) -> AsyncIterator[bytes]:
-    """Yield an upstream response and close connections after completion or disconnect."""
+    """Yield an upstream response and close connections after completion or disconnect.
+
+    Optional callbacks observe lifecycle events without changing the byte stream. They
+    let cross-cutting features such as logging remain outside the HTTP transport.
+    """
     try:
         async for chunk in response.aiter_raw():
+            if on_chunk is not None:
+                on_chunk(chunk)
             yield chunk
+    except asyncio.CancelledError:
+        if on_cancel is not None:
+            on_cancel()
+        raise
+    except BaseException as error:
+        if on_error is not None:
+            on_error(error)
+        raise
+    else:
+        if on_complete is not None:
+            on_complete()
     finally:
         await response.aclose()
         await client.aclose()

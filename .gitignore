@@ -224,4 +224,5 @@ PROJECT.md
 開発資料/
 config.json
 config.local.json
+logs/
 .DS_Store

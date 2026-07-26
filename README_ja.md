@@ -1,10 +1,10 @@
 # nicheLLM Proxy
 
-nicheLLM Proxyは、OpenAI互換クライアントと上流LLMプロバイダーの間で、HTTPリクエストとレスポンスを変換せずに中継します。v0.3では、信頼できるネットワーク内での単一listener運用を対象とします。
+nicheLLM Proxyは、OpenAI互換クライアントと上流LLMプロバイダーの間で、HTTPリクエストとレスポンスを変換せずに中継します。v1.0は、信頼できるネットワーク内での単一listener運用と、opt-inの構造化プロトコルログを提供します。
 
 [English README](README.md)
 
-## v0.3で対応するHTTPトランスポート
+## v1.0で対応するHTTPトランスポート
 
 - `GET`、`POST`、`PUT`、`PATCH`、`DELETE`、`HEAD`、`OPTIONS`をパススルーで転送し、リクエストのメソッド、パス、クエリ、本文を保持します。
 - JSON、`text/event-stream`（SSE）、multipart upload、バイナリのリクエスト／レスポンスを、単一の生HTTPパイプラインで中継します。エンドポイント固有の本文やSSEイベントを解析・再構成しません。
@@ -12,6 +12,7 @@ nicheLLM Proxyは、OpenAI互換クライアントと上流LLMプロバイダー
 - クライアントが送った`Authorization` headerは、設定した上流Bearer API keyに置き換えます。`Host`、hop-by-hop header、受信した`Authorization`以外のエンドツーエンドrequest headerは転送します。
 - プロキシの生存状態を確認する`GET /health`と、上流への接続・読取失敗時の安全なプロキシ生成5xx応答。
 - プロキシ自身が生成するメッセージの英語（既定）／日本語表示。
+- request・上流response・完了・失敗・cancelのJSON Linesプロトコルログ。`docker compose logs -f`用の標準出力と、任意のローテーションfileへ出力できます。
 
 次のOpenAI API群は、文書化された代表的なHTTPトランスポートの対象範囲です。これはトランスポートの挙動だけを示すもので、モデル、パラメーター、機能の意味的な受理は上流プロバイダーの責任です。
 
@@ -32,7 +33,7 @@ nicheLLM Proxyは、OpenAI互換クライアントと上流LLMプロバイダー
 
 - Realtime APIとResponses WebSocket modeを含むWebSocket、WebRTC、SIP通信。HTTP SSEには対応しますが、双方向WebSocketの代替ではありません。
 - OpenAI/Anthropicのプロトコル変換、Azure、Geminiその他のプロバイダー固有認証・URL変換を含むプロトコル変換またはプロバイダーアダプター。
-- webhook受信・署名検証、Administration API操作、リクエスト変換、ruri mode、ロギング、レート制限、プロキシ自身の認証、TLS終端、複数listener。
+- webhook受信・署名検証、Administration API操作、リクエスト変換、ruri mode、レート制限、プロキシ自身の認証、TLS終端、複数listener。
 - インターネットへの安全な直接公開。
 
 次のAPIはv0.3で新規推奨せず、個別トランスポート対象にもしていません: Assistants（`/v1/assistants`、`/v1/threads`、`/v1/runs`）、Videos API / Sora 2、Reusable Prompts、Evals API / Agent Builder、Legacy Completions、Images Variations。ワイルドカードルートがパスを機械的に転送する場合があっても、対応済み・推奨APIになるわけではありません。
@@ -45,7 +46,27 @@ nicheLLM Proxyは、OpenAI互換クライアントと上流LLMプロバイダー
 {
   "listener": {
     "port": 8000,
-    "mode": "passthrough"
+    "mode": "passthrough",
+    "features": [
+      {
+        "name": "logging",
+        "config": {
+          "stdout": true,
+          "file": {
+            "enabled": true,
+            "path": "/var/log/nichellm/proxy.jsonl",
+            "max_bytes": 10485760,
+            "backup_count": 5
+          },
+          "capture": {"bodies": false, "max_body_bytes": 1048576},
+          "redaction": {
+            "additional_header_names": [],
+            "additional_query_parameter_names": [],
+            "additional_json_field_names": []
+          }
+        }
+      }
+    ]
   },
   "upstream": {
     "base_url": "https://api.openai.com",
@@ -66,6 +87,18 @@ nicheLLM Proxyは、OpenAI互換クライアントと上流LLMプロバイダー
 
 プロキシはクライアントが送った`Authorization` headerを、設定した上流Bearer API keyに置き換え、受信した値は上流へ転送しません。同名のエンドツーエンドheaderも保持します。一方、プロバイダー固有のほかの認証情報headerに対する包括的な除去方針は適用しないため、信頼できるネットワーク内だけで運用してください。
 
+## プロトコルログ
+
+`listener.features`を省略すればv0.3互換のログなし動作になります。指定する場合は`logging`を1件だけ指定できます。v1.0は重複・未知feature・不正なlogging設定を起動前に拒否します。
+
+- `stdout: true`はUTF-8 JSON Linesをコンテナ標準出力へ出します。`docker compose logs -f nichellm-proxy`で追跡できます。
+- `file.enabled: true`は同一recordを`file.path`へ出します。pathは絶対パスで、`max_bytes`と`backup_count`はともに正の値が必要です。例の既定値では10 MiBの現行fileと5世代を保持するため、概算60 MiBです。
+- `capture.bodies`の既定値は**false**です。trueの場合だけ、JSON/text/SSEのrequest/response本文を`max_body_bytes`（既定1 MiB、最大10 MiB）まで記録します。中継streamを待機・再構築しません。
+- multipartとbinary本文は保存しません。byte数、SHA-256 digest、省略理由だけを記録します。text本文が上限で切れた場合はrecordに明記します。
+- `Authorization`、proxy authorization、Cookie、API key header、`token`、`secret`、`password`、`api_key`を含む名前の値はマスクします。プロジェクト固有の名前は3つの`redaction`配列へ追加してください。自由文promptやtool output内の秘密・個人情報をJSON redactionで確実に検出することはできません。
+
+本文captureを有効にすると、ユーザーpromptとmodel outputを意図的に保存します。信頼できる環境だけで有効にし、ログvolumeへのアクセス制御と保持・削除方針を定めてください。
+
 ## タイムアウトと長時間処理
 
 `connect_seconds`は上流への接続確立を待つ時間を制限します。`read_seconds`は上流から次のバイトを受け取るまでの待機時間を制限するものであり、継続してデータが届くレスポンス全体の所要時間を制限するものではありません。HTTP SSEと通常HTTPレスポンスでは、設定したタイムアウトを維持します。
@@ -85,6 +118,8 @@ export NICHELLM_LANGUAGE=ja  # 任意。既定は英語。
 uv sync --dev
 uv run niche-llm-proxy
 ```
+
+設定例のfile pathはDocker volume用です。ホスト実行では、`file.enabled`を`false`にするか、`file.path`を実行ユーザーが書き込める絶対directoryへ変更してください。
 
 別のターミナルからプロキシを確認できます。
 
@@ -111,16 +146,26 @@ Composeは`config.json`を`/app/config/config.json`へ読み取り専用でマ�
 docker compose down
 ```
 
+`nichellm-proxy-logs` named volumeは、コンテナを再作成しても`/var/log/nichellm`を保持します。共有terminalに本文を出さないよう注意して、現在のfileを確認してください。
+
+```bash
+docker compose logs -f nichellm-proxy
+docker compose exec nichellm-proxy sh -c 'ls -lh /var/log/nichellm'
+```
+
+保持済みログを削除する場合は、serviceを停止してから明示的にnamed volumeを削除してください。`docker compose down`だけでは削除されません。
+
 ## セキュリティ
 
 - API keyをコミットしないでください。実際の値は環境変数、`.env`、またはDocker secretsだけで管理してください。
 - `.env`やローカルの`config.json`をGitへ追加しないでください。
+- プロトコルログは機密データとして扱ってください。本文captureはopt-inですが、prompt、model output、個人情報を含み得ます。方針に従ってnamed volumeを保護・削除してください。
 - v0.3にはプロキシ自身の認証・TLS終端がありません。信頼できるネットワーク内だけで運用し、インターネットへ直接公開しないでください。
 - 上流APIの意味的な互換性、認可方針、モデルの利用可否、アカウントの利用資格は、HTTPパススルーでは保証しません。特にFine-tuning Jobの利用資格は上流アカウントによって決まります。
 
 ## テスト
 
-テストスイートでは疑似上流を使い、外部LLMプロバイダーや実API keyを使用しません。代表的なJSON、Responses SSE、multipart、バイナリ、Range/206、重複header、error、lifecycleのトランスポートcaseを扱います。
+テストスイートでは疑似上流を使い、外部LLMプロバイダーや実API keyを使用しません。代表的なJSON、Responses SSE、multipart、バイナリ、Range/206、重複header、error、lifecycle、redaction、上限付きcapture、rotationを検証します。
 
 ```bash
 uv sync --dev
@@ -139,9 +184,20 @@ msgfmt --check \
 
 ## Docker Hub
 
-v0.3ではDocker Hubへイメージを公開しません。コンテナレジストリへの公開、tag、CIによる配布はv1.0で導入予定です。
+release tagは`<DOCKERHUB_USERNAME>/nichellm-proxy`へ、multi-platform（`linux/amd64`、`linux/arm64`）imageとして公開します。本番では正確なversion tagを利用してください。
+
+```bash
+docker pull <DOCKERHUB_USERNAME>/nichellm-proxy:1.0.0
+```
+
+maintainerはDocker Hubに`nichellm-proxy`というpublic repositoryを作成し、有効期限付きのRead & Write Personal Access Tokenを作成します。GitHub Actions secret `DOCKERHUB_TOKEN`にPATを、GitHub Actions variable `DOCKERHUB_USERNAME`にDocker Hub usernameを登録してください。注釈付きGit tag `vX.Y.Z`のpushでtest後に`X.Y.Z`、`X.Y`、`latest`をSBOMとprovenance付きで公開します。tokenは絶対にcommitしないでください。
 
 ## 変更履歴
+
+### v1.0.0（未公開）
+
+- stdout JSON Lines、file出力、サイズベースrotation、上限付き本文capture、credential redactionを備えたopt-in logging featureを追加しました。
+- 永続Docker Compose log volumeと、test・image build・Docker Hub multi-platform公開用のGitHub Actions workflowを追加しました。
 
 ### v0.3.0（2026-07-25）
 

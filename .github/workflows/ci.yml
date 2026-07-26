@@ -1,0 +1,36 @@
+name: Test
+
+on:
+  pull_request:
+  push:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+      - name: Verify locked dependencies
+        run: uv lock --check
+      - name: Run tests
+        run: uv run --frozen --group dev pytest
+      - name: Check Python syntax
+        run: python -m py_compile src/niche_llm_proxy/*.py
+
+  docker-build:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+      - name: Build container image
+        run: docker build --tag nichellm-proxy:ci .
