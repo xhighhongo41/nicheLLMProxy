@@ -24,7 +24,7 @@ def create_app(
     upstream_transport: httpx.AsyncBaseTransport | None = None,
 ) -> FastAPI:
     """Create a passthrough ASGI application for the supplied configuration."""
-    app = FastAPI(title="nicheLLM Proxy", version="0.2.0", docs_url=None, redoc_url=None)
+    app = FastAPI(title="nicheLLM Proxy", version="0.3.0", docs_url=None, redoc_url=None)
     app.state.proxy_config = config
 
     @app.get("/health")
@@ -59,11 +59,15 @@ def create_app(
             await client.aclose()
             status_code, content = upstream_error_detail(error)
             return JSONResponse(status_code=status_code, content=content)
+        except BaseException:
+            await client.aclose()
+            raise
 
-        return StreamingResponse(
+        response = StreamingResponse(
             stream_response(upstream_response, client),
             status_code=upstream_response.status_code,
-            headers=prepare_response_headers(upstream_response.headers),
         )
+        response.raw_headers = prepare_response_headers(upstream_response.headers)
+        return response
 
     return app

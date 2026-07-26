@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator, Mapping
+from collections.abc import AsyncIterator, Mapping, Sequence
 
 import httpx
 from starlette.datastructures import Headers
@@ -21,6 +21,8 @@ _HOP_BY_HOP_HEADERS = {
     "upgrade",
 }
 
+HeaderPairs = list[tuple[bytes, bytes]]
+
 
 def build_upstream_url(base_url: str, path: str, query: str) -> str:
     """Join an incoming path and query to the upstream base URL."""
@@ -28,32 +30,47 @@ def build_upstream_url(base_url: str, path: str, query: str) -> str:
     return f"{url}?{query}" if query else url
 
 
-def prepare_request_headers(headers: Headers, api_key: str) -> dict[str, str]:
-    """Select forwardable headers and replace upstream credentials."""
-    connection_header = headers.get("connection", "")
-    connection_tokens = {
-        value.strip().lower()
-        for value in connection_header.split(",")
-        if value.strip()
+def _connection_tokens(headers: Sequence[tuple[bytes, bytes]]) -> set[bytes]:
+    """Return lower-case headers nominated by one or more Connection values."""
+    return {
+        token.strip().lower()
+        for name, value in headers
+        if name.lower() == b"connection"
+        for token in value.split(b",")
+        if token.strip()
     }
-    excluded_headers = _HOP_BY_HOP_HEADERS | connection_tokens | {"host", "authorization"}
 
-    forwarded_headers = {
-        name: value
-        for name, value in headers.items()
+
+def _forwardable_headers(
+    headers: Sequence[tuple[bytes, bytes]],
+    extra_excluded: set[bytes] | None = None,
+) -> HeaderPairs:
+    """Keep ordered end-to-end header pairs, including duplicate fields."""
+    excluded_headers = {
+        name.encode("ascii") for name in _HOP_BY_HOP_HEADERS
+    } | _connection_tokens(headers)
+    if extra_excluded:
+        excluded_headers |= extra_excluded
+    return [
+        (name, value)
+        for name, value in headers
         if name.lower() not in excluded_headers
-    }
-    forwarded_headers["authorization"] = f"Bearer {api_key}"
+    ]
+
+
+def prepare_request_headers(headers: Headers, api_key: str) -> HeaderPairs:
+    """Keep end-to-end request headers and replace client credentials."""
+    forwarded_headers = _forwardable_headers(
+        headers.raw,
+        {b"host", b"authorization"},
+    )
+    forwarded_headers.append((b"authorization", f"Bearer {api_key}".encode("ascii")))
     return forwarded_headers
 
 
-def prepare_response_headers(headers: httpx.Headers) -> dict[str, str]:
-    """Select upstream response headers that may be returned to the client."""
-    return {
-        name: value
-        for name, value in headers.items()
-        if name.lower() not in _HOP_BY_HOP_HEADERS
-    }
+def prepare_response_headers(headers: httpx.Headers) -> HeaderPairs:
+    """Keep ordered upstream end-to-end response headers, including duplicates."""
+    return _forwardable_headers(headers.raw)
 
 
 async def stream_response(
