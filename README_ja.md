@@ -194,7 +194,7 @@ maintainerはDocker Hubに`nichellm-proxy`というpublic repositoryを作成し
 
 ## 変更履歴
 
-### v1.0.0（未公開）
+### v1.0.0（2026-07-31）
 
 - stdout JSON Lines、file出力、サイズベースrotation、上限付き本文capture、credential redactionを備えたopt-in logging featureを追加しました。
 - 永続Docker Compose log volumeと、test・image build・Docker Hub multi-platform公開用のGitHub Actions workflowを追加しました。

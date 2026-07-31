@@ -194,7 +194,7 @@ Maintainers: create a public Docker Hub repository named `nichellm-proxy`, creat
 
 ## Release history
 
-### v1.0.0 (Unreleased)
+### v1.0.0 (2026-07-31)
 
 - Added the opt-in structured logging feature with stdout JSON Lines, file output, size-based rotation, bounded body capture, and credential redaction.
 - Added a persistent Docker Compose log volume and GitHub Actions workflows for tests, image builds, and Docker Hub multi-platform publication.
