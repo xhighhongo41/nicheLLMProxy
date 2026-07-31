@@ -87,3 +87,91 @@ def test_get_config_path_honors_environment_override() -> None:
     assert get_config_path({"NICHELLM_CONFIG_PATH": "/tmp/custom.json"}) == Path(
         "/tmp/custom.json"
     )
+
+
+def test_load_config_accepts_logging_feature(
+    monkeypatch: pytest.MonkeyPatch,
+    write_config: Callable[[dict[str, object] | None], Path],
+    tmp_path: Path,
+) -> None:
+    """Load bounded stdout and rotating-file logging without storing a secret."""
+    monkeypatch.setenv("UPSTREAM_API_KEY", "secret-value")
+    config = load_config(
+        write_config(
+            {
+                "listener": {
+                    "port": 8000,
+                    "mode": "passthrough",
+                    "features": [
+                        {
+                            "name": "logging",
+                            "config": {
+                                "stdout": False,
+                                "file": {
+                                    "enabled": True,
+                                    "path": str(tmp_path / "proxy.jsonl"),
+                                    "max_bytes": 100,
+                                    "backup_count": 2,
+                                },
+                                "capture": {"bodies": True, "max_body_bytes": 100},
+                                "redaction": {
+                                    "additional_header_names": ["X-Customer-Secret"],
+                                },
+                            },
+                        }
+                    ],
+                }
+            }
+        )
+    )
+
+    assert config.logging is not None
+    assert config.logging.file.path == tmp_path / "proxy.jsonl"
+    assert config.logging.capture.bodies
+    assert config.logging.redaction.additional_header_names == {"x_customer_secret"}
+
+
+@pytest.mark.parametrize(
+    ("features", "message"),
+    [
+        ({}, "array"),
+        ([{"name": "unknown", "config": {}}], "only 'logging'"),
+        (
+            [
+                {"name": "logging", "config": {}},
+                {"name": "logging", "config": {}},
+            ],
+            "duplicate",
+        ),
+        ([{"name": "logging", "config": {"stdout": False}}], "stdout or file"),
+        (
+            [
+                {
+                    "name": "logging",
+                    "config": {"file": {"enabled": True, "path": "relative.log"}},
+                }
+            ],
+            "absolute",
+        ),
+    ],
+)
+def test_load_config_rejects_invalid_logging_feature(
+    monkeypatch: pytest.MonkeyPatch,
+    write_config: Callable[[dict[str, object] | None], Path],
+    features: object,
+    message: str,
+) -> None:
+    """Reject ambiguous logging settings before the service starts."""
+    monkeypatch.setenv("UPSTREAM_API_KEY", "secret-value")
+    with pytest.raises(ConfigError, match=message):
+        load_config(
+            write_config(
+                {
+                    "listener": {
+                        "port": 8000,
+                        "mode": "passthrough",
+                        "features": features,
+                    }
+                }
+            )
+        )

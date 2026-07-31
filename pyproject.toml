@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "niche-llm-proxy"
-version = "0.3.0"
+version = "1.0.0"
 description = "An extensible LLM proxy for OpenAI-compatible APIs"
 readme = "README.md"
 requires-python = ">=3.11"

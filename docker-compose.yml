@@ -10,6 +10,7 @@ services:
       UPSTREAM_API_KEY: ${UPSTREAM_API_KEY:?UPSTREAM_API_KEY must be set}
     volumes:
       - ./config.json:/app/config/config.json:ro
+      - nichellm-proxy-logs:/var/log/nichellm
     healthcheck:
       test:
         - CMD
@@ -23,3 +24,6 @@ services:
       retries: 3
       start_period: 5s
     restart: unless-stopped
+
+volumes:
+  nichellm-proxy-logs:
