@@ -46,7 +46,17 @@ class ListenerConfig:
 
     port: int
     mode: str
+    grok_image: "GrokImageConfig | None" = None
     features: tuple["LoggingFeatureConfig", ...] = ()
+
+
+@dataclass(frozen=True)
+class GrokImageConfig:
+    """Optional grok-image mode settings for image generation."""
+
+    default_model: str | None = None
+    aspect_ratio: str | None = None
+    resolution: str | None = None
 
 
 @dataclass(frozen=True)
@@ -160,9 +170,12 @@ def load_config(
     upstream_data = _required_object(raw_config, "upstream")
     timeout_data = _optional_object(raw_config, "timeouts")
 
+    port = _port(listener_data)
+    mode = _mode(listener_data)
     listener = ListenerConfig(
-        port=_port(listener_data),
-        mode=_passthrough_mode(listener_data),
+        port=port,
+        mode=mode,
+        grok_image=_grok_image(listener_data, mode),
         features=_features(listener_data),
     )
     api_key_env = _non_empty_string(upstream_data, "api_key_env")
@@ -243,13 +256,69 @@ def _port(listener: Mapping[str, Any]) -> int:
     return value
 
 
-def _passthrough_mode(listener: Mapping[str, Any]) -> str:
-    """Validate and return the listener mode supported in v0.1."""
+def _mode(listener: Mapping[str, Any]) -> str:
+    """Validate and return the listener mode supported by this release."""
 
     mode = listener.get("mode")
-    if mode != "passthrough":
-        raise ConfigError(translate("listener.mode must be 'passthrough'."))
+    if not isinstance(mode, str) or mode not in {"passthrough", "grok-image"}:
+        raise ConfigError(
+            translate("listener.mode must be 'passthrough' or 'grok-image'.")
+        )
     return mode
+
+
+def _grok_image(listener: Mapping[str, Any], mode: str) -> GrokImageConfig | None:
+    """Validate the optional grok_image settings for the grok-image listener."""
+
+    if "grok_image" not in listener:
+        return None
+    if mode != "grok-image":
+        raise ConfigError(
+            translate(
+                "listener.grok_image is only supported in 'grok-image' mode."
+            )
+        )
+    value = _required_object(listener, "grok_image")
+    _reject_unknown_keys(
+        value,
+        {"default_model", "aspect_ratio", "resolution"},
+        "listener.grok_image",
+    )
+    return GrokImageConfig(
+        default_model=_grok_image_string(value, "default_model"),
+        aspect_ratio=_grok_image_string(value, "aspect_ratio"),
+        resolution=_grok_image_resolution(value),
+    )
+
+
+def _grok_image_string(config: Mapping[str, Any], key: str) -> str | None:
+    """Validate an optional non-empty grok_image string setting."""
+
+    if key not in config or config[key] is None:
+        return None
+    value = config[key]
+    if not isinstance(value, str) or not value.strip():
+        raise ConfigError(
+            translate(
+                "listener.grok_image.{key} must be a non-empty string.",
+                key=key,
+            )
+        )
+    return value
+
+
+def _grok_image_resolution(config: Mapping[str, Any]) -> str | None:
+    """Validate the optional grok_image resolution setting."""
+
+    key = "resolution"
+    if key not in config or config[key] is None:
+        return None
+    value = config[key]
+    if not isinstance(value, str) or value not in {"1k", "2k"}:
+        raise ConfigError(
+            translate("listener.grok_image.resolution must be '1k' or '2k'.")
+        )
+    return value
 
 
 def _features(listener: Mapping[str, Any]) -> tuple[LoggingFeatureConfig, ...]:
