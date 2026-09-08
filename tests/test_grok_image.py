@@ -2,11 +2,20 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
+from collections.abc import AsyncIterator, Callable
+from pathlib import Path
 
+import httpx
 import pytest
 
-from niche_llm_proxy.config import GrokImageConfig
+from niche_llm_proxy.app import create_app
+from niche_llm_proxy.config import (
+    GrokImageConfig,
+    ProxyConfig,
+    load_config,
+)
 from niche_llm_proxy.grok_image import (
     RequestKind,
     TransformError,
@@ -15,6 +24,19 @@ from niche_llm_proxy.grok_image import (
     transform_response_body,
 )
 from niche_llm_proxy.i18n import translate
+
+
+class _BytesStream(httpx.AsyncByteStream):
+    """Provide a response body that remains unread until the proxy streams it."""
+
+    def __init__(self, body: bytes) -> None:
+        self.body = body
+
+    async def __aiter__(self) -> AsyncIterator[bytes]:
+        yield self.body
+
+    async def aclose(self) -> None:
+        pass
 
 
 def _body(obj: object) -> bytes:
@@ -352,3 +374,460 @@ class TestTransformResponseBody:
         assert result == body
         assert len(caplog.records) == 1
         assert caplog.records[0].levelname == "WARNING"
+
+
+def _grok_image_config(
+    monkeypatch: pytest.MonkeyPatch,
+    write_config: Callable[[dict[str, object] | None], Path],
+    *,
+    grok_image: dict[str, object] | None = None,
+    logging_config: dict[str, object] | None = None,
+) -> ProxyConfig:
+    """Create a grok-image mode proxy configuration for end-to-end tests."""
+
+    monkeypatch.setenv("XAI_API_KEY", "xai-upstream-secret")
+    listener: dict[str, object] = {"port": 8000, "mode": "grok-image"}
+    if grok_image is not None:
+        listener["grok_image"] = grok_image
+    if logging_config is not None:
+        listener["features"] = [{"name": "logging", "config": logging_config}]
+    return load_config(
+        write_config(
+            {
+                "listener": listener,
+                "upstream": {
+                    "base_url": "https://upstream.example.test",
+                    "api_key_env": "XAI_API_KEY",
+                },
+            }
+        )
+    )
+
+
+_UPSTREAM_IMAGE_RESPONSE = (
+    b'{"data":[{"b64_json":"aW1hZ2U=","mime_type":"image/jpeg"}],'
+    b'"usage":{"cost_in_usd_ticks":400000000}}'
+)
+
+
+@pytest.mark.anyio
+async def test_generations_transforms_request_and_adds_created(
+    monkeypatch: pytest.MonkeyPatch,
+    write_config: Callable[[dict[str, object] | None], Path],
+) -> None:
+    """Transform an OpenAI-style request and return an OpenAI-style response."""
+    config = _grok_image_config(
+        monkeypatch,
+        write_config,
+        grok_image={
+            "default_model": "grok-imagine-image-2.0",
+            "aspect_ratio": "1:1",
+            "resolution": "1k",
+        },
+    )
+    received: dict[str, object] = {}
+
+    def upstream_handler(request: httpx.Request) -> httpx.Response:
+        received["method"] = request.method
+        received["path"] = request.url.path
+        received["body"] = request.content
+        received["authorization"] = request.headers["authorization"]
+        return httpx.Response(
+            200,
+            headers={"Content-Type": "application/json", "X-Upstream": "kept"},
+            content=_UPSTREAM_IMAGE_RESPONSE,
+            request=request,
+        )
+
+    app = create_app(config, httpx.MockTransport(upstream_handler))
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app),
+        base_url="http://proxy.test",
+    ) as client:
+        response = await client.post(
+            "/v1/images/generations",
+            json={
+                "model": "grok-imagine-image-2.0",
+                "prompt": "a cat",
+                "size": "1024x1024",
+                "quality": "hd",
+                "storage_options": {"ttl": 3600},
+            },
+        )
+
+    assert response.status_code == 200
+    assert received["method"] == "POST"
+    assert received["path"] == "/v1/images/generations"
+    assert received["authorization"] == "Bearer xai-upstream-secret"
+    assert json.loads(received["body"]) == {
+        "prompt": "a cat",
+        "model": "grok-imagine-image-2.0",
+        "response_format": "b64_json",
+        "storage_options": {"ttl": 3600},
+        "aspect_ratio": "1:1",
+        "resolution": "1k",
+    }
+    payload = response.json()
+    assert payload["data"] == [{"b64_json": "aW1hZ2U=", "mime_type": "image/jpeg"}]
+    assert payload["usage"] == {"cost_in_usd_ticks": 400000000}
+    assert isinstance(payload["created"], int)
+    assert response.headers["content-type"].startswith("application/json")
+    assert response.headers["x-upstream"] == "kept"
+
+
+@pytest.mark.anyio
+async def test_generations_preserves_existing_created(
+    monkeypatch: pytest.MonkeyPatch,
+    write_config: Callable[[dict[str, object] | None], Path],
+) -> None:
+    """Keep an upstream created timestamp unchanged."""
+    config = _grok_image_config(monkeypatch, write_config)
+    upstream_body = b'{"created":111,"data":[]}'
+
+    def upstream_handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            headers={"Content-Type": "application/json"},
+            content=upstream_body,
+            request=request,
+        )
+
+    app = create_app(config, httpx.MockTransport(upstream_handler))
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app),
+        base_url="http://proxy.test",
+    ) as client:
+        response = await client.post(
+            "/v1/images/generations", json={"prompt": "a cat", "model": "grok-imagine-image-2.0"}
+        )
+
+    assert response.status_code == 200
+    assert response.json() == {"created": 111, "data": []}
+
+
+@pytest.mark.anyio
+async def test_generations_rejects_invalid_request_before_upstream(
+    monkeypatch: pytest.MonkeyPatch,
+    write_config: Callable[[dict[str, object] | None], Path],
+) -> None:
+    """Reject an invalid request locally without contacting the upstream."""
+    config = _grok_image_config(monkeypatch, write_config)
+    contacted = False
+
+    def upstream_handler(request: httpx.Request) -> httpx.Response:
+        nonlocal contacted
+        contacted = True
+        return httpx.Response(200, request=request)
+
+    app = create_app(config, httpx.MockTransport(upstream_handler))
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app),
+        base_url="http://proxy.test",
+    ) as client:
+        response = await client.post("/v1/images/generations", json={"prompt": "   "})
+
+    assert response.status_code == 400
+    assert response.json() == {"detail": "'prompt' must be a non-empty string."}
+    assert not contacted
+
+
+@pytest.mark.anyio
+async def test_unsupported_path_returns_404(
+    monkeypatch: pytest.MonkeyPatch,
+    write_config: Callable[[dict[str, object] | None], Path],
+) -> None:
+    """Reject a path outside the grok-image route table."""
+    config = _grok_image_config(monkeypatch, write_config)
+    contacted = False
+
+    def upstream_handler(request: httpx.Request) -> httpx.Response:
+        nonlocal contacted
+        contacted = True
+        return httpx.Response(200, request=request)
+
+    app = create_app(config, httpx.MockTransport(upstream_handler))
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app),
+        base_url="http://proxy.test",
+    ) as client:
+        response = await client.post("/v1/chat/completions", json={"input": "hi"})
+
+    assert response.status_code == 404
+    assert response.json() == {
+        "detail": "This path is not supported in 'grok-image' mode."
+    }
+    assert not contacted
+
+
+@pytest.mark.anyio
+async def test_unsupported_method_returns_405(
+    monkeypatch: pytest.MonkeyPatch,
+    write_config: Callable[[dict[str, object] | None], Path],
+) -> None:
+    """Reject a supported path reached with an unsupported method."""
+    config = _grok_image_config(monkeypatch, write_config)
+    contacted = False
+
+    def upstream_handler(request: httpx.Request) -> httpx.Response:
+        nonlocal contacted
+        contacted = True
+        return httpx.Response(200, request=request)
+
+    app = create_app(config, httpx.MockTransport(upstream_handler))
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app),
+        base_url="http://proxy.test",
+    ) as client:
+        response = await client.get("/v1/images/generations")
+
+    assert response.status_code == 405
+    assert response.json() == {
+        "detail": "This path is not supported in 'grok-image' mode."
+    }
+    assert not contacted
+
+
+@pytest.mark.anyio
+async def test_model_listings_are_passed_through(
+    monkeypatch: pytest.MonkeyPatch,
+    write_config: Callable[[dict[str, object] | None], Path],
+) -> None:
+    """Relay model listing requests unchanged, including their query strings."""
+    config = _grok_image_config(monkeypatch, write_config)
+    upstream_body = b'{"object":"list","data":[{"id":"grok-imagine-image-2.0"}]}'
+    received: dict[str, object] = {}
+
+    def upstream_handler(request: httpx.Request) -> httpx.Response:
+        received[request.url.path] = request.url.query
+        return httpx.Response(
+            200,
+            headers={"Content-Type": "application/json"},
+            stream=_BytesStream(upstream_body),
+            request=request,
+        )
+
+    app = create_app(config, httpx.MockTransport(upstream_handler))
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app),
+        base_url="http://proxy.test",
+    ) as client:
+        first = await client.get("/v1/models?list=images")
+        second = await client.get("/v1/image-generation-models")
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert first.content == upstream_body
+    assert second.content == upstream_body
+    assert received == {
+        "/v1/models": b"list=images",
+        "/v1/image-generation-models": b"",
+    }
+    assert first.headers["content-type"].startswith("application/json")
+
+
+@pytest.mark.anyio
+async def test_upstream_error_is_passed_through(
+    monkeypatch: pytest.MonkeyPatch,
+    write_config: Callable[[dict[str, object] | None], Path],
+) -> None:
+    """Relay upstream errors without changing status or body."""
+    config = _grok_image_config(monkeypatch, write_config)
+    error_body = b'{"error":{"message":"size is not supported"}}'
+
+    def upstream_handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            400,
+            headers={"Content-Type": "application/json"},
+            content=error_body,
+            request=request,
+        )
+
+    app = create_app(config, httpx.MockTransport(upstream_handler))
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app),
+        base_url="http://proxy.test",
+    ) as client:
+        response = await client.post(
+            "/v1/images/generations",
+            json={
+                "prompt": "a cat",
+                "model": "grok-imagine-image-2.0",
+                "size": "1024x1024",
+            },
+        )
+
+    assert response.status_code == 400
+    assert response.content == error_body
+    assert response.headers["content-type"].startswith("application/json")
+
+
+@pytest.mark.anyio
+async def test_upstream_non_json_success_passes_through(
+    monkeypatch: pytest.MonkeyPatch,
+    write_config: Callable[[dict[str, object] | None], Path],
+) -> None:
+    """Return an unparseable upstream success body unchanged."""
+    config = _grok_image_config(monkeypatch, write_config)
+    upstream_body = b"not json"
+
+    def upstream_handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            headers={"Content-Type": "text/plain"},
+            content=upstream_body,
+            request=request,
+        )
+
+    app = create_app(config, httpx.MockTransport(upstream_handler))
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app),
+        base_url="http://proxy.test",
+    ) as client:
+        response = await client.post(
+            "/v1/images/generations", json={"prompt": "a cat", "model": "grok-imagine-image-2.0"}
+        )
+
+    assert response.status_code == 200
+    assert response.content == upstream_body
+    assert response.headers["content-type"].startswith("text/plain")
+
+
+@pytest.mark.anyio
+async def test_upstream_connect_error_returns_502(
+    monkeypatch: pytest.MonkeyPatch,
+    write_config: Callable[[dict[str, object] | None], Path],
+) -> None:
+    """Map an upstream connection failure to the proxy error contract."""
+    config = _grok_image_config(monkeypatch, write_config)
+
+    def upstream_handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("connection failed", request=request)
+
+    app = create_app(config, httpx.MockTransport(upstream_handler))
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app),
+        base_url="http://proxy.test",
+    ) as client:
+        response = await client.post(
+            "/v1/images/generations", json={"prompt": "a cat", "model": "grok-imagine-image-2.0"}
+        )
+
+    assert response.status_code == 502
+    assert response.json() == {"detail": "Unable to connect to the upstream provider."}
+
+
+@pytest.mark.anyio
+async def test_health_does_not_contact_upstream_in_grok_image_mode(
+    monkeypatch: pytest.MonkeyPatch,
+    write_config: Callable[[dict[str, object] | None], Path],
+) -> None:
+    """Keep serving health checks without forwarding them in grok-image mode."""
+    config = _grok_image_config(monkeypatch, write_config)
+    contacted = False
+
+    def upstream_handler(request: httpx.Request) -> httpx.Response:
+        nonlocal contacted
+        contacted = True
+        return httpx.Response(200, request=request)
+
+    app = create_app(config, httpx.MockTransport(upstream_handler))
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app),
+        base_url="http://proxy.test",
+    ) as client:
+        response = await client.get("/health")
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok"}
+    assert not contacted
+
+
+@pytest.mark.anyio
+async def test_logging_correlates_transformed_exchange(
+    monkeypatch: pytest.MonkeyPatch,
+    write_config: Callable[[dict[str, object] | None], Path],
+    tmp_path: Path,
+) -> None:
+    """Log the original request, the transformed upstream request, and the response."""
+    log_path = tmp_path / "grok.jsonl"
+    config = _grok_image_config(
+        monkeypatch,
+        write_config,
+        grok_image={"default_model": "grok-imagine-image-2.0"},
+        logging_config={
+            "stdout": False,
+            "file": {
+                "enabled": True,
+                "path": str(log_path),
+                "max_bytes": 1_000_000,
+                "backup_count": 2,
+            },
+            "capture": {"bodies": True, "max_body_bytes": 1_000},
+        },
+    )
+    original_body = json.dumps(
+        {
+            "prompt": "a cat",
+            "model": "grok-imagine-image-2.0",
+            "api_key": "client-secret",
+            "size": "1024x1024",
+        }
+    ).encode()
+    response_body = b'{"data":[]}'
+
+    def upstream_handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            headers={"Content-Type": "application/json"},
+            content=response_body,
+            request=request,
+        )
+
+    app = create_app(config, httpx.MockTransport(upstream_handler))
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app),
+        base_url="http://proxy.test",
+    ) as client:
+        response = await client.post(
+            "/v1/images/generations",
+            content=original_body,
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": "Bearer client-secret",
+            },
+        )
+
+    app.state.logging_runtime.close()
+    records = [
+        json.loads(line)
+        for line in log_path.read_text(encoding="utf-8").splitlines()
+    ]
+
+    assert response.status_code == 200
+    assert [record["event"] for record in records] == [
+        "request_received",
+        "upstream_request_sent",
+        "upstream_response_started",
+        "exchange_completed",
+    ]
+    assert len({record["request_id"] for record in records}) == 1
+    serialized = json.dumps(records)
+    assert "client-secret" not in serialized
+    assert "xai-upstream-secret" not in serialized
+    sent = records[1]
+    transformed = json.dumps(
+        {
+            "prompt": "a cat",
+            "model": "grok-imagine-image-2.0",
+            "response_format": "b64_json",
+            "api_key": "client-secret",
+        }
+    ).encode()
+    assert sent["upstream_request_bytes"] == len(transformed)
+    assert sent["upstream_request_sha256"] == hashlib.sha256(transformed).hexdigest()
+    completed = records[-1]
+    assert completed["request"]["body"] == (
+        '{"prompt":"a cat","model":"grok-imagine-image-2.0",'
+        '"api_key":"[REDACTED]","size":"1024x1024"}'
+    )
+    assert completed["response"]["body"] == response_body.decode()

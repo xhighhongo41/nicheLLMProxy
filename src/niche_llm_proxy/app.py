@@ -11,6 +11,13 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from niche_llm_proxy.config import ProxyConfig
+from niche_llm_proxy.grok_image import (
+    RequestKind,
+    TransformError,
+    classify_request,
+    handle_grok_image_generations,
+)
+from niche_llm_proxy.i18n import translate
 from niche_llm_proxy.logging_feature import ExchangeLog, LoggingRuntime
 from niche_llm_proxy.passthrough import (
     build_upstream_url,
@@ -67,6 +74,15 @@ def create_app(
     ) -> StreamingResponse | JSONResponse:
         """Relay an incoming HTTP request to the upstream without transformation."""
         del path  # Use the Request URL to avoid divergence from the route parameter.
+        if config.listener.mode == "grok-image":
+            kind = classify_request(request.url.path, request.method)
+            if kind is RequestKind.GENERATIONS:
+                exchange = _new_exchange(logging_runtime, request)
+                return await handle_grok_image_generations(
+                    config, exchange, upstream_transport, request
+                )
+            if kind in (RequestKind.UNSUPPORTED_PATH, RequestKind.METHOD_NOT_ALLOWED):
+                return _reject_grok_image_route(logging_runtime, request, kind)
         exchange = _new_exchange(logging_runtime, request)
         client = create_http_client(config, transport=upstream_transport)
         upstream_url = build_upstream_url(
@@ -126,6 +142,21 @@ def create_app(
         return response
 
     return app
+
+
+def _reject_grok_image_route(
+    logging_runtime: LoggingRuntime | None,
+    request: Request,
+    kind: RequestKind,
+) -> JSONResponse:
+    """Reject a route that the grok-image mode does not relay."""
+
+    status_code = 404 if kind is RequestKind.UNSUPPORTED_PATH else 405
+    message = translate("This path is not supported in 'grok-image' mode.")
+    exchange = _new_exchange(logging_runtime, request)
+    if exchange is not None:
+        exchange.fail("grok_image_route", TransformError(status_code, message))
+    return JSONResponse(status_code=status_code, content={"detail": message})
 
 
 def _new_exchange(

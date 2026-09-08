@@ -34,8 +34,8 @@ def test_japanese_catalog_translates_config_error(monkeypatch: pytest.MonkeyPatc
 
     assert get_language() == "ja"
     assert (
-        translate("listener.mode must be 'passthrough'.")
-        == "listener.mode は 'passthrough' である必要があります。"
+        translate("listener.mode must be 'passthrough' or 'grok-image'.")
+        == "listener.mode は 'passthrough' または 'grok-image' である必要があります。"
     )
 
 
