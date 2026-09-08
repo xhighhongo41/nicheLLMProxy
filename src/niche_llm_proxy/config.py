@@ -47,6 +47,7 @@ class ListenerConfig:
     port: int
     mode: str
     grok_image: "GrokImageConfig | None" = None
+    gemini_image: "GeminiImageConfig | None" = None
     features: tuple["LoggingFeatureConfig", ...] = ()
 
 
@@ -57,6 +58,14 @@ class GrokImageConfig:
     default_model: str | None = None
     aspect_ratio: str | None = None
     resolution: str | None = None
+
+
+@dataclass(frozen=True)
+class GeminiImageConfig:
+    """Optional gemini-image mode settings for image generation."""
+
+    default_model: str | None = None
+    aspect_ratio: str | None = None
 
 
 @dataclass(frozen=True)
@@ -176,6 +185,7 @@ def load_config(
         port=port,
         mode=mode,
         grok_image=_grok_image(listener_data, mode),
+        gemini_image=_gemini_image(listener_data, mode),
         features=_features(listener_data),
     )
     api_key_env = _non_empty_string(upstream_data, "api_key_env")
@@ -260,9 +270,15 @@ def _mode(listener: Mapping[str, Any]) -> str:
     """Validate and return the listener mode supported by this release."""
 
     mode = listener.get("mode")
-    if not isinstance(mode, str) or mode not in {"passthrough", "grok-image"}:
+    if not isinstance(mode, str) or mode not in {
+        "passthrough",
+        "grok-image",
+        "gemini-image",
+    }:
         raise ConfigError(
-            translate("listener.mode must be 'passthrough' or 'grok-image'.")
+            translate(
+                "listener.mode must be 'passthrough', 'grok-image' or 'gemini-image'."
+            )
         )
     return mode
 
@@ -317,6 +333,45 @@ def _grok_image_resolution(config: Mapping[str, Any]) -> str | None:
     if not isinstance(value, str) or value not in {"1k", "2k"}:
         raise ConfigError(
             translate("listener.grok_image.resolution must be '1k' or '2k'.")
+        )
+    return value
+
+
+def _gemini_image(listener: Mapping[str, Any], mode: str) -> GeminiImageConfig | None:
+    """Validate the optional gemini_image settings for the gemini-image listener."""
+
+    if "gemini_image" not in listener:
+        return None
+    if mode != "gemini-image":
+        raise ConfigError(
+            translate(
+                "listener.gemini_image is only supported in 'gemini-image' mode."
+            )
+        )
+    value = _required_object(listener, "gemini_image")
+    _reject_unknown_keys(
+        value,
+        {"default_model", "aspect_ratio"},
+        "listener.gemini_image",
+    )
+    return GeminiImageConfig(
+        default_model=_gemini_image_string(value, "default_model"),
+        aspect_ratio=_gemini_image_string(value, "aspect_ratio"),
+    )
+
+
+def _gemini_image_string(config: Mapping[str, Any], key: str) -> str | None:
+    """Validate an optional non-empty gemini_image string setting."""
+
+    if key not in config or config[key] is None:
+        return None
+    value = config[key]
+    if not isinstance(value, str) or not value.strip():
+        raise ConfigError(
+            translate(
+                "listener.gemini_image.{key} must be a non-empty string.",
+                key=key,
+            )
         )
     return value
 
