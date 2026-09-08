@@ -254,7 +254,7 @@ msgfmt --check \
 release tagは`<DOCKERHUB_USERNAME>/nichellm-proxy`へ、multi-platform（`linux/amd64`、`linux/arm64`）imageとして公開します。本番では正確なversion tagを利用してください。
 
 ```bash
-docker pull <DOCKERHUB_USERNAME>/nichellm-proxy:1.0.0
+docker pull <DOCKERHUB_USERNAME>/nichellm-proxy:1.1.0
 ```
 
 maintainerはDocker Hubに`nichellm-proxy`というpublic repositoryを作成し、有効期限付きのRead & Write Personal Access Tokenを作成します。GitHub Actions secret `DOCKERHUB_TOKEN`にPATを、GitHub Actions variable `DOCKERHUB_USERNAME`にDocker Hub usernameを登録してください。注釈付きGit tag `vX.Y.Z`のpushでtest後に`X.Y.Z`、`X.Y`、`latest`をSBOMとprovenance付きで公開します。tokenは絶対にcommitしないでください。
