@@ -1,6 +1,6 @@
 # nicheLLM Proxy
 
-nicheLLM Proxyは、OpenAI互換クライアントと上流LLMプロバイダーの間で、HTTPリクエストとレスポンスを変換せずに中継します。v1.0は、信頼できるネットワーク内での単一listener運用と、opt-inの構造化プロトコルログを提供します。
+nicheLLM Proxyは、OpenAI互換クライアントと上流LLMプロバイダーの間でHTTPリクエストとレスポンスを中継します。`passthrough`モードは変換せずに転送し、v1.1で追加された`grok-image`モードは、Grok(xAI)の画像生成をOpenAI互換インターフェースとして提供します。どちらのモードでも、信頼できるネットワーク内での単一listener運用と、opt-inの構造化プロトコルログを利用できます。
 
 [English README](README.md)
 
@@ -32,8 +32,8 @@ nicheLLM Proxyは、OpenAI互換クライアントと上流LLMプロバイダー
 ## サポートしないこと
 
 - Realtime APIとResponses WebSocket modeを含むWebSocket、WebRTC、SIP通信。HTTP SSEには対応しますが、双方向WebSocketの代替ではありません。
-- OpenAI/Anthropicのプロトコル変換、Azure、Geminiその他のプロバイダー固有認証・URL変換を含むプロトコル変換またはプロバイダーアダプター。
-- webhook受信・署名検証、Administration API操作、リクエスト変換、ruri mode、レート制限、プロキシ自身の認証、TLS終端、複数listener。
+- `grok-image`モードのOpenAI ImagesからxAIへの変換を除くプロトコル変換またはプロバイダーアダプター。OpenAI/Anthropicのプロトコル変換、Azure、Geminiその他のプロバイダー固有認証・URL変換を含む。
+- webhook受信・署名検証、Administration API操作、ruri mode、レート制限、プロキシ自身の認証、TLS終端、複数listener。
 - インターネットへの安全な直接公開。
 
 次のAPIはv0.3で新規推奨せず、個別トランスポート対象にもしていません: Assistants（`/v1/assistants`、`/v1/threads`、`/v1/runs`）、Videos API / Sora 2、Reusable Prompts、Evals API / Agent Builder、Legacy Completions、Images Variations。ワイルドカードルートがパスを機械的に転送する場合があっても、対応済み・推奨APIになるわけではありません。
@@ -82,10 +82,77 @@ nicheLLM Proxyは、OpenAI互換クライアントと上流LLMプロバイダー
 |環境変数|必須|用途|
 |---|---|---|
 |`UPSTREAM_API_KEY`|はい|上流プロバイダーへ送るAPIキー。`api_key_env`と同じ名前にします。|
+|`XAI_API_KEY`|いいえ|`grok-image`モードの設定例がxAIへ送るAPIキー。`api_key_env`と同じ名前にします。|
 |`NICHELLM_CONFIG_PATH`|いいえ|設定JSONへのパス。既定値は`/app/config/config.json`です。ホスト実行時は指定してください。|
 |`NICHELLM_LANGUAGE`|いいえ|プロキシ自身が生成するメッセージの言語。`en`（既定）または`ja`を指定します。`ja-JP`のような値は`ja`として扱い、未対応値は英語へフォールバックします。|
 
 プロキシはクライアントが送った`Authorization` headerを、設定した上流Bearer API keyに置き換え、受信した値は上流へ転送しません。同名のエンドツーエンドheaderも保持します。一方、プロバイダー固有のほかの認証情報headerに対する包括的な除去方針は適用しないため、信頼できるネットワーク内だけで運用してください。
+
+### リスナーモード
+
+`listener.mode`には`passthrough`（上記の例）または`grok-image`を指定できます。`passthrough`はリクエストとレスポンスを変換せずに転送します。`grok-image`は、Grok(xAI)の画像生成をOpenAI互換インターフェースとして提供します。
+
+|経路|メソッド|動作|
+|---|---|---|
+|`/v1/images/generations`|POST|OpenAI ImagesリクエストをxAI画像生成APIへ変換して転送し、応答をOpenAI互換に整形|
+|`/v1/models`|GET|上流へ無変換で転送|
+|`/v1/image-generation-models`|GET|上流へ無変換で転送|
+|上記以外の経路|任意|ローカライズ済みエラーを伴うHTTP 404|
+|上記経路の未対応メソッド|—|ローカライズ済みエラーを伴うHTTP 405|
+
+`GET /health`はどのモードでも動作します。上流エラーはステータスと本文をそのまま透過し、上流への接続・読取失敗は`passthrough`と同じ502/504応答を返します。
+
+`grok-image`モードでは、プロキシはOpenAI専用パラメータの`size`、`quality`、`style`、`seed`、`background`、`moderation`、`output_format`、`output_compression`を除去し、リクエストに`response_format`がなければ`b64_json`を付与し、`n`が1から10の整数であることを検証し、その他不正リクエストは上流へ送る前にHTTP 400で拒否し、`storage_options`などそれ以外のキーはそのまま透過します。`logging` featureはこのモードでも`passthrough`と同様に機能します。
+
+`listener.grok_image`は任意で、`grok-image`モードでのみ指定できます。リクエストでの直接指定が優先される既定値を持ちます。
+
+- `default_model`: リクエストに`model`がない場合に使う既定モデル。リクエスト・設定の双方にない場合はHTTP 400を返します。
+- `aspect_ratio`: リクエストに`aspect_ratio`がない場合に付与します（例: `1:1`、`16:9`）。
+- `resolution`: リクエストに`resolution`がない場合に付与します。`1k`または`2k`です。
+
+`passthrough`モードで`grok_image`を指定すると起動時の設定エラーになります。完全な例は`config.grok-image.example.json`にあります。
+
+```json
+{
+  "listener": {
+    "port": 8000,
+    "mode": "grok-image",
+    "grok_image": {
+      "default_model": "grok-imagine-image-2.0",
+      "aspect_ratio": "1:1",
+      "resolution": "1k"
+    },
+    "features": [
+      {
+        "name": "logging",
+        "config": {
+          "stdout": true,
+          "file": {
+            "enabled": true,
+            "path": "/var/log/nichellm/proxy.jsonl",
+            "max_bytes": 10485760,
+            "backup_count": 5
+          },
+          "capture": {"bodies": false, "max_body_bytes": 1048576},
+          "redaction": {
+            "additional_header_names": [],
+            "additional_query_parameter_names": [],
+            "additional_json_field_names": []
+          }
+        }
+      }
+    ]
+  },
+  "upstream": {
+    "base_url": "https://api.x.ai",
+    "api_key_env": "XAI_API_KEY"
+  },
+  "timeouts": {
+    "connect_seconds": 10,
+    "read_seconds": 120
+  }
+}
+```
 
 ## プロトコルログ
 
@@ -193,6 +260,12 @@ docker pull <DOCKERHUB_USERNAME>/nichellm-proxy:1.0.0
 maintainerはDocker Hubに`nichellm-proxy`というpublic repositoryを作成し、有効期限付きのRead & Write Personal Access Tokenを作成します。GitHub Actions secret `DOCKERHUB_TOKEN`にPATを、GitHub Actions variable `DOCKERHUB_USERNAME`にDocker Hub usernameを登録してください。注釈付きGit tag `vX.Y.Z`のpushでtest後に`X.Y.Z`、`X.Y`、`latest`をSBOMとprovenance付きで公開します。tokenは絶対にcommitしないでください。
 
 ## 変更履歴
+
+### v1.1.0（2026-09-08）
+
+- Grok(xAI)の画像生成をOpenAI互換インターフェースとして提供する`grok-image` listenerモードを追加しました。`POST /v1/images/generations`はOpenAI ImagesからxAI画像生成APIへ変換して転送し、`GET /v1/models`と`GET /v1/image-generation-models`は無変換で転送します。
+- `default_model`、`aspect_ratio`、`resolution`の既定値を指定する任意の`listener.grok_image`設定を追加しました。
+- プロトコルログの`logging` featureを`grok-image`モードにも対応させました。
 
 ### v1.0.0（2026-07-31）
 

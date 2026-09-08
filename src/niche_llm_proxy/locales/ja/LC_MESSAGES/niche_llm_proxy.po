@@ -1,6 +1,6 @@
 msgid ""
 msgstr ""
-"Project-Id-Version: nicheLLM Proxy 1.0.0\n"
+"Project-Id-Version: nicheLLM Proxy 1.1.0\n"
 "PO-Revision-Date: 2026-07-26 00:00+0000\n"
 "Last-Translator: nicheLLM Proxy contributors\n"
 "Language-Team: Japanese\n"
