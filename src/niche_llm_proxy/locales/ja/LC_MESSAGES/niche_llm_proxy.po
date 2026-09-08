@@ -105,6 +105,9 @@ msgstr "上流プロバイダーへ接続できません。"
 msgid "This path is not supported in 'grok-image' mode."
 msgstr "この経路は 'grok-image' モードではサポートされていません。"
 
+msgid "This path is not supported in 'gemini-image' mode."
+msgstr "この経路は 'gemini-image' モードではサポートされていません。"
+
 msgid "Request body must be a JSON object in 'grok-image' mode."
 msgstr "'grok-image' モードでは、リクエスト本文はJSONオブジェクトである必要があります。"
 

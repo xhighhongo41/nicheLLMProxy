@@ -8,6 +8,8 @@ services:
       NICHELLM_CONFIG_PATH: /app/config/config.json
       NICHELLM_LANGUAGE: ${NICHELLM_LANGUAGE:-en}
       UPSTREAM_API_KEY: ${UPSTREAM_API_KEY:?UPSTREAM_API_KEY must be set}
+      XAI_API_KEY: ${XAI_API_KEY:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
     volumes:
       - ./config.json:/app/config/config.json:ro
       - nichellm-proxy-logs:/var/log/nichellm
