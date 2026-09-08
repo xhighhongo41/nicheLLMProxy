@@ -119,3 +119,9 @@ msgstr "'n' は1から10までの整数である必要があります。"
 
 msgid "'response_format' must be 'url' or 'b64_json'."
 msgstr "'response_format' は 'url' または 'b64_json' である必要があります。"
+
+msgid "Request body must be a JSON object in 'gemini-image' mode."
+msgstr "'gemini-image' モードでは、リクエスト本文はJSONオブジェクトである必要があります。"
+
+msgid "'response_format' must be 'b64_json' in 'gemini-image' mode."
+msgstr "'gemini-image' モードでは、'response_format' は 'b64_json' である必要があります。"
