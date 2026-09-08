@@ -1,6 +1,6 @@
 msgid ""
 msgstr ""
-"Project-Id-Version: nicheLLM Proxy 1.0.0\n"
+"Project-Id-Version: nicheLLM Proxy 1.1.0\n"
 "PO-Revision-Date: 2026-07-26 00:00+0000\n"
 "Last-Translator: nicheLLM Proxy contributors\n"
 "Language-Team: Japanese\n"
@@ -30,8 +30,17 @@ msgstr "設定項目 '{key}' はオブジェクトである必要があります
 msgid "listener.port must be an integer between 1 and 65535."
 msgstr "listener.port は1から65535までの整数である必要があります。"
 
-msgid "listener.mode must be 'passthrough'."
-msgstr "listener.mode は 'passthrough' である必要があります。"
+msgid "listener.mode must be 'passthrough' or 'grok-image'."
+msgstr "listener.mode は 'passthrough' または 'grok-image' である必要があります。"
+
+msgid "listener.grok_image is only supported in 'grok-image' mode."
+msgstr "listener.grok_image は 'grok-image' モードでのみ指定できます。"
+
+msgid "listener.grok_image.{key} must be a non-empty string."
+msgstr "listener.grok_image.{key} は空でない文字列である必要があります。"
+
+msgid "listener.grok_image.resolution must be '1k' or '2k'."
+msgstr "listener.grok_image.resolution は '1k' または '2k' である必要があります。"
 
 msgid "listener.features must be an array."
 msgstr "listener.features は配列である必要があります。"
@@ -86,3 +95,21 @@ msgstr "上流プロバイダーがタイムアウトしました。"
 
 msgid "Unable to connect to the upstream provider."
 msgstr "上流プロバイダーへ接続できません。"
+
+msgid "This path is not supported in 'grok-image' mode."
+msgstr "この経路は 'grok-image' モードではサポートされていません。"
+
+msgid "Request body must be a JSON object in 'grok-image' mode."
+msgstr "'grok-image' モードでは、リクエスト本文はJSONオブジェクトである必要があります。"
+
+msgid "'prompt' must be a non-empty string."
+msgstr "'prompt' は空でない文字列である必要があります。"
+
+msgid "'model' is required when no default model is configured."
+msgstr "既定モデルが設定されていない場合、'model' は必須です。"
+
+msgid "'n' must be an integer between 1 and 10."
+msgstr "'n' は1から10までの整数である必要があります。"
+
+msgid "'response_format' must be 'url' or 'b64_json'."
+msgstr "'response_format' は 'url' または 'b64_json' である必要があります。"

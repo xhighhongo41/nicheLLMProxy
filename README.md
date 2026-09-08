@@ -1,6 +1,6 @@
 # nicheLLM Proxy
 
-nicheLLM Proxy relays HTTP requests and responses without transformation between an OpenAI-compatible client and an upstream LLM provider. Version 1.0 supports one listener in a trusted network and adds opt-in structured protocol logging.
+nicheLLM Proxy relays HTTP requests and responses between an OpenAI-compatible client and an upstream LLM provider. The `passthrough` mode forwards without transformation, and the `grok-image` mode added in v1.1 presents Grok (xAI) image generation through an OpenAI-compatible interface. Both modes support one listener in a trusted network and opt-in structured protocol logging.
 
 [日本語版 README](README_ja.md)
 
@@ -32,8 +32,8 @@ Other non-deprecated OpenAI HTTP endpoints are not blocked by the wildcard route
 ## Not supported
 
 - WebSocket, WebRTC, or SIP transport, including Realtime API and the Responses WebSocket mode. HTTP SSE is supported, but it is not a bidirectional WebSocket replacement.
-- Protocol conversion or provider adapters, including OpenAI/Anthropic protocol conversion and Azure, Gemini, or other provider-specific authentication or URL conversion.
-- Webhook receiving or signature verification, Administration API operations, request transformation, ruri mode, rate limiting, proxy authentication, TLS termination, or multiple listeners.
+- Protocol conversion or provider adapters other than the `grok-image` mode's OpenAI Images to xAI conversion, including OpenAI/Anthropic protocol conversion and Azure, Gemini, or other provider-specific authentication or URL conversion.
+- Webhook receiving or signature verification, Administration API operations, ruri mode, rate limiting, proxy authentication, TLS termination, or multiple listeners.
 - Safe direct exposure to the public internet.
 
 The following APIs are not newly recommended or individually transport-tested in v0.3: Assistants (`/v1/assistants`, `/v1/threads`, `/v1/runs`), Videos API / Sora 2, Reusable Prompts, Evals API / Agent Builder, Legacy Completions, and Images Variations. The wildcard route may mechanically forward a path, but this does not make it a supported or recommended API.
@@ -82,10 +82,77 @@ Do not put an API key value in the configuration JSON. Specify only the environm
 |Environment variable|Required|Purpose|
 |---|---|---|
 |`UPSTREAM_API_KEY`|Yes|API key sent to the upstream provider. Its name must match `api_key_env`.|
+|`XAI_API_KEY`|No|API key sent to xAI by the `grok-image` mode example. Its name must match `api_key_env`.|
 |`NICHELLM_CONFIG_PATH`|No|Path to the configuration JSON. The default is `/app/config/config.json`; set it for host execution.|
 |`NICHELLM_LANGUAGE`|No|Language for proxy-generated messages: `en` (default) or `ja`. Values such as `ja-JP` are treated as `ja`; unsupported values fall back to English.|
 
 The proxy replaces a client-supplied `Authorization` header with the configured upstream Bearer API key and does not forward the received value. It preserves repeated end-to-end headers. It does not apply a general credential-scrubbing policy to other provider-specific headers; operate it only in a trusted network.
+
+### Listener modes
+
+`listener.mode` accepts `passthrough` (the example above) or `grok-image`. `passthrough` forwards requests and responses without transformation. `grok-image` presents Grok (xAI) image generation through an OpenAI-compatible interface:
+
+|Path|Method|Behavior|
+|---|---|---|
+|`/v1/images/generations`|POST|OpenAI Images request translated to the xAI image generation API; response made OpenAI-compatible|
+|`/v1/models`|GET|Forwarded to the upstream without transformation|
+|`/v1/image-generation-models`|GET|Forwarded to the upstream without transformation|
+|Any other path|Any|HTTP 404 with a localized error|
+|An unsupported method on the paths above|—|HTTP 405 with a localized error|
+
+`GET /health` works in every mode. Upstream errors are passed through with their status and body unchanged, and upstream connection and read failures return the same 502/504 responses as `passthrough`.
+
+In `grok-image` mode, the proxy removes the OpenAI-only parameters `size`, `quality`, `style`, `seed`, `background`, `moderation`, `output_format`, and `output_compression`; adds `response_format: "b64_json"` when the request omits it; validates that `n` is an integer between 1 and 10; rejects other invalid requests with HTTP 400 before they reach the upstream; and passes other keys such as `storage_options` through unchanged. The `logging` feature works in this mode as in `passthrough`.
+
+`listener.grok_image` is optional and only accepted in `grok-image` mode. It supplies defaults that a direct request value overrides:
+
+- `default_model`: used when the request has no `model`. If neither is present, the proxy returns HTTP 400.
+- `aspect_ratio`: added when the request omits `aspect_ratio` (for example `1:1` or `16:9`).
+- `resolution`: added when the request omits `resolution`. It must be `1k` or `2k`.
+
+Specifying `grok_image` in `passthrough` mode is a startup configuration error. A complete example is available as `config.grok-image.example.json`:
+
+```json
+{
+  "listener": {
+    "port": 8000,
+    "mode": "grok-image",
+    "grok_image": {
+      "default_model": "grok-imagine-image-2.0",
+      "aspect_ratio": "1:1",
+      "resolution": "1k"
+    },
+    "features": [
+      {
+        "name": "logging",
+        "config": {
+          "stdout": true,
+          "file": {
+            "enabled": true,
+            "path": "/var/log/nichellm/proxy.jsonl",
+            "max_bytes": 10485760,
+            "backup_count": 5
+          },
+          "capture": {"bodies": false, "max_body_bytes": 1048576},
+          "redaction": {
+            "additional_header_names": [],
+            "additional_query_parameter_names": [],
+            "additional_json_field_names": []
+          }
+        }
+      }
+    ]
+  },
+  "upstream": {
+    "base_url": "https://api.x.ai",
+    "api_key_env": "XAI_API_KEY"
+  },
+  "timeouts": {
+    "connect_seconds": 10,
+    "read_seconds": 120
+  }
+}
+```
 
 ## Protocol logging
 
@@ -187,12 +254,18 @@ msgfmt --check \
 Release tags are published as multi-platform (`linux/amd64`, `linux/arm64`) images at `<DOCKERHUB_USERNAME>/nichellm-proxy`. Use an exact version tag in production:
 
 ```bash
-docker pull <DOCKERHUB_USERNAME>/nichellm-proxy:1.0.0
+docker pull <DOCKERHUB_USERNAME>/nichellm-proxy:1.1.0
 ```
 
 Maintainers: create a public Docker Hub repository named `nichellm-proxy`, create an expiring Read & Write Docker Hub personal access token, and store it as the GitHub Actions secret `DOCKERHUB_TOKEN`. Store the Docker Hub username as the GitHub Actions variable `DOCKERHUB_USERNAME`. Pushing an annotated `vX.Y.Z` Git tag runs tests and then publishes `X.Y.Z`, `X.Y`, and `latest`, including SBOM and provenance. Never commit the token.
 
 ## Release history
+
+### v1.1.0 (2026-09-08)
+
+- Added the `grok-image` listener mode, which presents Grok (xAI) image generation through an OpenAI-compatible interface: `POST /v1/images/generations` is translated from OpenAI Images to the xAI image generation API, while `GET /v1/models` and `GET /v1/image-generation-models` are forwarded without transformation.
+- Added the optional `listener.grok_image` settings for `default_model`, `aspect_ratio`, and `resolution` defaults.
+- Extended the protocol logging feature to the `grok-image` mode.
 
 ### v1.0.0 (2026-07-31)
 

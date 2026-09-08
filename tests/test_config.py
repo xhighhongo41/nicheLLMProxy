@@ -31,6 +31,7 @@ def test_load_config_reads_valid_settings(
     [
         ({"listener": {"port": 0, "mode": "passthrough"}}, "port"),
         ({"listener": {"port": 8000, "mode": "unknown"}}, "mode"),
+        ({"listener": {"port": 8000, "mode": ["grok-image"]}}, "mode"),
         ({"upstream": {"base_url": "not-a-url", "api_key_env": "UPSTREAM_API_KEY"}}, "base_url"),
     ],
 )
@@ -175,3 +176,209 @@ def test_load_config_rejects_invalid_logging_feature(
                 }
             )
         )
+
+
+def test_load_config_accepts_grok_image_mode(
+    monkeypatch: pytest.MonkeyPatch,
+    write_config: Callable[[dict[str, object] | None], Path],
+) -> None:
+    """Accept grok-image mode without a grok_image object."""
+    monkeypatch.setenv("UPSTREAM_API_KEY", "secret-value")
+    config = load_config(
+        write_config({"listener": {"port": 8000, "mode": "grok-image"}})
+    )
+
+    assert config.listener.mode == "grok-image"
+    assert config.listener.grok_image is None
+
+
+def test_load_config_reads_grok_image_settings(
+    monkeypatch: pytest.MonkeyPatch,
+    write_config: Callable[[dict[str, object] | None], Path],
+) -> None:
+    """Read grok-image mode settings into the configuration object."""
+    monkeypatch.setenv("UPSTREAM_API_KEY", "secret-value")
+    config = load_config(
+        write_config(
+            {
+                "listener": {
+                    "port": 8000,
+                    "mode": "grok-image",
+                    "grok_image": {
+                        "default_model": "grok-imagine-image-2.0",
+                        "aspect_ratio": "1:1",
+                        "resolution": "1k",
+                    },
+                }
+            }
+        )
+    )
+
+    assert config.listener.mode == "grok-image"
+    grok_image = config.listener.grok_image
+    assert grok_image is not None
+    assert grok_image.default_model == "grok-imagine-image-2.0"
+    assert grok_image.aspect_ratio == "1:1"
+    assert grok_image.resolution == "1k"
+
+
+def test_load_config_rejects_grok_image_in_passthrough_mode(
+    monkeypatch: pytest.MonkeyPatch,
+    write_config: Callable[[dict[str, object] | None], Path],
+) -> None:
+    """Reject a grok_image object when the listener runs in passthrough mode."""
+    monkeypatch.setenv("UPSTREAM_API_KEY", "secret-value")
+    with pytest.raises(ConfigError, match="grok-image"):
+        load_config(
+            write_config(
+                {
+                    "listener": {
+                        "port": 8000,
+                        "mode": "passthrough",
+                        "grok_image": {"default_model": "grok-imagine-image-2.0"},
+                    }
+                }
+            )
+        )
+
+
+@pytest.mark.parametrize(
+    "grok_image",
+    ["not-an-object", [{"default_model": "grok-imagine-image-2.0"}], 123, True],
+)
+def test_load_config_rejects_non_object_grok_image(
+    monkeypatch: pytest.MonkeyPatch,
+    write_config: Callable[[dict[str, object] | None], Path],
+    grok_image: object,
+) -> None:
+    """Reject a grok_image value that is not an object."""
+    monkeypatch.setenv("UPSTREAM_API_KEY", "secret-value")
+    with pytest.raises(ConfigError, match="must be an object"):
+        load_config(
+            write_config(
+                {
+                    "listener": {
+                        "port": 8000,
+                        "mode": "grok-image",
+                        "grok_image": grok_image,
+                    }
+                }
+            )
+        )
+
+
+def test_load_config_rejects_unknown_grok_image_field(
+    monkeypatch: pytest.MonkeyPatch,
+    write_config: Callable[[dict[str, object] | None], Path],
+) -> None:
+    """Reject an unknown field inside the grok_image object."""
+    monkeypatch.setenv("UPSTREAM_API_KEY", "secret-value")
+    with pytest.raises(ConfigError, match="unknown"):
+        load_config(
+            write_config(
+                {
+                    "listener": {
+                        "port": 8000,
+                        "mode": "grok-image",
+                        "grok_image": {
+                            "default_model": "grok-imagine-image-2.0",
+                            "size": "1024x1024",
+                        },
+                    }
+                }
+            )
+        )
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("default_model", ""),
+        ("default_model", 123),
+        ("aspect_ratio", ""),
+        ("aspect_ratio", 123),
+    ],
+)
+def test_load_config_rejects_invalid_grok_image_string_field(
+    monkeypatch: pytest.MonkeyPatch,
+    write_config: Callable[[dict[str, object] | None], Path],
+    field: str,
+    value: object,
+) -> None:
+    """Reject an empty or non-string grok_image string field."""
+    monkeypatch.setenv("UPSTREAM_API_KEY", "secret-value")
+    with pytest.raises(ConfigError, match="non-empty string"):
+        load_config(
+            write_config(
+                {
+                    "listener": {
+                        "port": 8000,
+                        "mode": "grok-image",
+                        "grok_image": {field: value},
+                    }
+                }
+            )
+        )
+
+
+def test_load_config_accepts_null_grok_image_fields(
+    monkeypatch: pytest.MonkeyPatch,
+    write_config: Callable[[dict[str, object] | None], Path],
+) -> None:
+    """Treat null grok_image fields as unset defaults."""
+    monkeypatch.setenv("UPSTREAM_API_KEY", "secret-value")
+    config = load_config(
+        write_config(
+            {
+                "listener": {
+                    "port": 8000,
+                    "mode": "grok-image",
+                    "grok_image": {
+                        "default_model": None,
+                        "aspect_ratio": None,
+                        "resolution": None,
+                    },
+                }
+            }
+        )
+    )
+
+    grok_image = config.listener.grok_image
+    assert grok_image is not None
+    assert grok_image.default_model is None
+    assert grok_image.aspect_ratio is None
+    assert grok_image.resolution is None
+
+
+@pytest.mark.parametrize(
+    ("resolution", "valid"),
+    [
+        ("1k", True),
+        ("2k", True),
+        ("3k", False),
+        ("", False),
+        (123, False),
+        (["1k"], False),
+    ],
+)
+def test_load_config_validates_grok_image_resolution(
+    monkeypatch: pytest.MonkeyPatch,
+    write_config: Callable[[dict[str, object] | None], Path],
+    resolution: object,
+    valid: bool,
+) -> None:
+    """Accept only the supported grok-image resolutions."""
+    monkeypatch.setenv("UPSTREAM_API_KEY", "secret-value")
+    settings = {
+        "listener": {
+            "port": 8000,
+            "mode": "grok-image",
+            "grok_image": {"resolution": resolution},
+        }
+    }
+    if valid:
+        config = load_config(write_config(settings))
+        assert config.listener.grok_image.resolution == resolution
+    else:
+        with pytest.raises(ConfigError, match="resolution"):
+            load_config(write_config(settings))

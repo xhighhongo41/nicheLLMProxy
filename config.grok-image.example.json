@@ -1,0 +1,42 @@
+{
+  "listener": {
+    "port": 8000,
+    "mode": "grok-image",
+    "grok_image": {
+      "default_model": "grok-imagine-image-2.0",
+      "aspect_ratio": "1:1",
+      "resolution": "1k"
+    },
+    "features": [
+      {
+        "name": "logging",
+        "config": {
+          "stdout": true,
+          "file": {
+            "enabled": true,
+            "path": "/var/log/nichellm/proxy.jsonl",
+            "max_bytes": 10485760,
+            "backup_count": 5
+          },
+          "capture": {
+            "bodies": false,
+            "max_body_bytes": 1048576
+          },
+          "redaction": {
+            "additional_header_names": [],
+            "additional_query_parameter_names": [],
+            "additional_json_field_names": []
+          }
+        }
+      }
+    ]
+  },
+  "upstream": {
+    "base_url": "https://api.x.ai",
+    "api_key_env": "XAI_API_KEY"
+  },
+  "timeouts": {
+    "connect_seconds": 10,
+    "read_seconds": 120
+  }
+}
