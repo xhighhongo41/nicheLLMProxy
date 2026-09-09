@@ -10,6 +10,7 @@ nicheLLM Proxy relays HTTP requests and responses between an OpenAI-compatible c
 
 - Docker with the `docker compose` plugin (recommended), or
 - Python 3.11 or later with [uv](https://docs.astral.sh/uv/) for host execution.
+- Git, to clone and update the repository.
 
 An upstream LLM provider account with an API key is required in every setup. See [Configuration](#configuration) for the configuration JSON file.
 
@@ -21,13 +22,19 @@ The Docker image contains no API key or configuration JSON. Create them on the h
 git clone https://github.com/xhighhongo41/nicheLLMProxy.git
 cd nicheLLMProxy
 cp config.example.json config.json
-# Set upstream.base_url in config.json for the provider you use.
+# If you use a provider other than OpenAI, change upstream.base_url in config.json.
 export UPSTREAM_API_KEY='your-upstream-api-key'
+export NICHELLM_LANGUAGE=ja  # optional; English is the default
 docker compose up --build -d
+```
+
+The Compose file includes a healthcheck that probes `GET /health` every 30 seconds; `docker compose ps` shows the service as `healthy` once it is ready. Check the proxy:
+
+```bash
 curl http://127.0.0.1:8000/health
 ```
 
-Compose mounts `config.json` read-only at `/app/config/config.json` and publishes the service only on `127.0.0.1:8000`. Stop the service with:
+Compose mounts `config.json` read-only at `/app/config/config.json` and publishes the service only on `127.0.0.1:8000`; the proxy has no authentication, so keep this binding on trusted networks. To let other machines on your network connect, change the host-side binding in the `ports` mapping (for example `"8000:8000"`), only on networks you trust. Stop the service with:
 
 ```bash
 docker compose down
@@ -40,7 +47,7 @@ docker compose logs -f nichellm-proxy
 docker compose exec nichellm-proxy sh -c 'ls -lh /var/log/nichellm'
 ```
 
-To delete retained logs deliberately, stop the service and remove the named volume. `docker compose down` alone does not remove it.
+To delete retained logs deliberately, stop the service and remove the named volume with `docker compose down -v`; `docker compose down` alone does not remove it.
 
 ### Run with the published Docker Hub image
 
@@ -50,7 +57,7 @@ Published multi-platform (`linux/amd64`, `linux/arm64`) images are available at 
 docker pull xhighhongo41/nichellm-proxy:1.2.1
 ```
 
-The image contains no API key or configuration JSON. Put a `config.json` (start from the full example in [Configuration](#configuration)) and this Compose file in a working directory:
+The image contains no API key or configuration JSON. Create a `.env` file next to the Compose file with the API key variables your configuration uses (see [API key management](#api-key-management)), and put a `config.json` (start from the full example in [Configuration](#configuration)) and this Compose file in a working directory:
 
 ```yaml
 services:
@@ -61,7 +68,7 @@ services:
     environment:
       NICHELLM_CONFIG_PATH: /app/config/config.json
       NICHELLM_LANGUAGE: ${NICHELLM_LANGUAGE:-en}
-      UPSTREAM_API_KEY: ${UPSTREAM_API_KEY:?UPSTREAM_API_KEY must be set}
+      UPSTREAM_API_KEY: ${UPSTREAM_API_KEY:-}
       XAI_API_KEY: ${XAI_API_KEY:-}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
     volumes:
@@ -76,10 +83,11 @@ volumes:
 Then start it:
 
 ```bash
-export UPSTREAM_API_KEY='your-upstream-api-key'
 docker compose up -d
 curl http://127.0.0.1:8000/health
 ```
+
+This minimal example omits the healthcheck included in the bundled `docker-compose.yml`; the `curl` above can fail while the container is still starting — retry after a few seconds. The API key variables above are optional references; the proxy verifies at startup that the variable named by `api_key_env` in your `config.json` is actually set. The named log volume behaves the same as in the Compose-from-source setup, including removal with `docker compose down -v`.
 
 ### Run locally with uv
 
@@ -89,7 +97,7 @@ curl http://127.0.0.1:8000/health
 git clone https://github.com/xhighhongo41/nicheLLMProxy.git
 cd nicheLLMProxy
 cp config.example.json config.json
-# Set upstream.base_url in config.json for the provider you use.
+# If you use a provider other than OpenAI, change upstream.base_url in config.json.
 export UPSTREAM_API_KEY='your-upstream-api-key'
 export NICHELLM_CONFIG_PATH="$PWD/config.json"
 export NICHELLM_LANGUAGE=ja  # optional; English is the default
@@ -97,13 +105,40 @@ uv sync
 uv run niche-llm-proxy
 ```
 
-The example file path is intended for the Docker volume. For host execution, either set `file.enabled` to `false` or change `file.path` to an absolute directory writable by your user.
+The `file.path` in the example is intended for the Docker volume. For host execution, either set `file.enabled` to `false` or change `file.path` to an absolute directory writable by your user.
 
 From another terminal, check the proxy:
 
 ```bash
 curl http://127.0.0.1:8000/health
 ```
+
+Host execution listens on all interfaces (`0.0.0.0`), unlike the Compose setups, which publish only `127.0.0.1:8000`. Keep this in mind on shared networks and restrict access with a firewall if necessary. Stop the foreground proxy with Ctrl-C.
+
+### Using the proxy from a client
+
+Point any OpenAI-compatible client at `http://127.0.0.1:8000/v1` instead of the upstream provider. With `curl`:
+
+```bash
+curl http://127.0.0.1:8000/v1/chat/completions \
+  -H 'Content-Type: application/json' \
+  -d '{"model": "gpt-4o-mini", "messages": [{"role": "user", "content": "Hello"}]}'
+```
+
+With the OpenAI Python library, set `base_url` and use any placeholder `api_key`:
+
+```python
+from openai import OpenAI
+
+client = OpenAI(base_url="http://127.0.0.1:8000/v1", api_key="placeholder")
+response = client.chat.completions.create(
+    model="gpt-4o-mini",
+    messages=[{"role": "user", "content": "Hello"}],
+)
+print(response.choices[0].message.content)
+```
+
+The `Authorization` header is optional: the proxy always replaces it with the configured upstream Bearer API key (see [API key management](#api-key-management)), so clients never hold the real key. The image modes accept `POST /v1/images/generations` the same way.
 
 ### Updating an existing installation
 
@@ -136,7 +171,7 @@ and start it again.
 
 ### Configuration file
 
-The proxy reads one mandatory configuration JSON file. Three templates are included in the repository:
+The proxy reads one mandatory configuration JSON file. Three templates are included in the repository (fetch them from GitHub when you run only the published image):
 
 - `config.example.json` — `passthrough` mode (shown below)
 - `config.grok-image.example.json` — `grok-image` mode
@@ -183,6 +218,8 @@ The `passthrough` example:
 }
 ```
 
+The `file.path` in the example is intended for the Docker volume. For host execution, either disable file logging or change it to a writable absolute directory (see [Run locally with uv](#run-locally-with-uv)).
+
 Common keys:
 
 |Key|Type / constraint|Default|
@@ -194,7 +231,9 @@ Common keys:
 |`timeouts.connect_seconds`|positive number|10.0|
 |`timeouts.read_seconds`|positive number|120.0|
 
-Mode-specific keys (`listener.grok_image`, `listener.gemini_image`) and the optional `listener.features` logging feature are described in [Modes and features](#modes-and-features). Unknown keys inside the mode-specific objects, invalid values, and mode-mismatched settings are rejected as startup configuration errors. Complete `grok-image` and `gemini-image` examples are available as `config.grok-image.example.json` and `config.gemini-image.example.json`.
+The `timeouts` object itself is optional, and every key with a default value can be omitted. If you change `listener.port`, also change the host-side port in the Compose `ports` mapping so both sides match.
+
+Mode-specific keys (`listener.grok_image`, `listener.gemini_image`) and the optional `listener.features` logging feature are described in [Modes and features](#modes-and-features). Unknown keys inside the mode-specific objects, invalid values, and mode-mismatched settings are rejected as startup configuration errors. Outside those objects, unknown keys are silently ignored — check the key spelling (for example `timouts` instead of `timeouts`) if a setting seems to have no effect. Complete `grok-image` and `gemini-image` examples are available as `config.grok-image.example.json` and `config.gemini-image.example.json`.
 
 ### Environment variables
 
@@ -218,7 +257,7 @@ Do not put an API key value in the configuration JSON. Specify only the name of 
 export UPSTREAM_API_KEY='your-upstream-api-key'
 ```
 
-For Docker Compose, a `.env` file next to the Compose file is a convenient place for the real values; Compose reads it automatically. `.env.example` in the repository shows the variables used by the bundled setups.
+For Docker Compose, a `.env` file next to the Compose file is a convenient place for the real values; Compose reads it automatically. `.env.example` in the repository lists the same variables as the table above.
 
 The proxy replaces a client-supplied `Authorization` header with the configured upstream Bearer API key and does not forward the received value, so clients never need the real upstream key.
 
@@ -226,11 +265,11 @@ The proxy replaces a client-supplied `Authorization` header with the configured 
 
 `connect_seconds` limits the time to establish an upstream connection. `read_seconds` limits the wait for the next byte from the upstream; it is not a limit on the total duration of a response that continues to deliver data. Keep the configured timeout for HTTP SSE and ordinary HTTP responses.
 
-For background responses, batches, and fine-tuning jobs, create the job and poll its status from the client instead of holding one proxy connection indefinitely. Realtime and Responses WebSocket workloads require a separate bidirectional transport design and are not supported by v0.3.
+For background responses, batches, and fine-tuning jobs, create the job and poll its status from the client instead of holding one proxy connection indefinitely. Realtime and Responses WebSocket workloads require a separate bidirectional transport design and are not supported.
 
 ## Modes and features
 
-`listener.mode` accepts `passthrough`, `grok-image`, or `gemini-image`. The optional `logging` feature works in every mode. `GET /health` works in every mode. Upstream errors are passed through with their status and body unchanged, and upstream connection and read failures return the same 502/504 responses as `passthrough`.
+`listener.mode` accepts `passthrough`, `grok-image`, or `gemini-image`. `GET /health` works in every mode. Upstream errors are passed through with their status and body unchanged, and upstream connection and read failures return the same 502/504 responses as `passthrough`.
 
 |Mode / feature|Function|Settings|
 |---|---|---|
@@ -245,11 +284,13 @@ For background responses, batches, and fine-tuning jobs, create the job and poll
 
 - Pass-through forwarding for `GET`, `POST`, `PUT`, `PATCH`, `DELETE`, `HEAD`, and `OPTIONS`, preserving the request method, path, query, and body.
 - One raw HTTP pipeline for JSON, `text/event-stream` (SSE), multipart uploads, and binary request and response bodies. The proxy does not parse or reconstruct endpoint-specific bodies or SSE events.
-- Pass-through upstream status codes, including HTTP errors and `206 Partial Content` range responses, plus end-to-end response headers. Repeated end-to-end headers are retained.
-- Replace a client-supplied `Authorization` header with the configured upstream Bearer API key. Apart from `Host`, hop-by-hop headers, and the received `Authorization`, end-to-end request headers are forwarded.
+- Pass-through upstream status codes, including HTTP errors and `206 Partial Content` range responses, plus end-to-end response headers. Duplicate end-to-end headers (such as multiple `Set-Cookie` headers) are retained.
+- Replace the client `Authorization` header as described in [API key management](#api-key-management). Apart from `Host`, hop-by-hop headers, and the received `Authorization`, end-to-end request headers are forwarded.
 - `GET /health` for proxy liveness checks, and safe proxy-generated 5xx responses for upstream connection and read failures.
 - User-facing proxy messages in English (default) or Japanese.
 - Optional JSON Lines protocol logs for request, upstream-response, completion, failure, and cancellation events. Logs go to stdout for `docker compose logs -f` and optionally to a rotating file.
+
+#### Transport-tested API families
 
 The following OpenAI API families are in the documented representative HTTP transport scope. This describes transport behavior only; acceptance of models, parameters, and feature semantics remains the responsibility of the upstream provider.
 
@@ -268,11 +309,9 @@ Other non-deprecated OpenAI HTTP endpoints are not blocked by the wildcard route
 
 HTTP pass-through does not guarantee the upstream API's semantic compatibility, authorization policy, model availability, or account eligibility. In particular, Fine-tuning Job eligibility is determined by the upstream account.
 
-The proxy replaces a client-supplied `Authorization` header with the configured upstream Bearer API key and does not forward the received value. It preserves repeated end-to-end headers. It does not apply a general credential-scrubbing policy to other provider-specific headers; operate it only in a trusted network.
-
 WebSocket, WebRTC, or SIP transport, including Realtime API and the Responses WebSocket mode, is not supported. HTTP SSE is supported, but it is not a bidirectional WebSocket replacement.
 
-The following APIs are not newly recommended or individually transport-tested in v0.3: Assistants (`/v1/assistants`, `/v1/threads`, `/v1/runs`), Videos API / Sora 2, Reusable Prompts, Evals API / Agent Builder, Legacy Completions, and Images Variations. The wildcard route may mechanically forward a path, but this does not make it a supported or recommended API.
+Some deprecated or legacy OpenAI endpoints (for example Assistants (`/v1/assistants`) and Legacy Completions) are not individually transport-tested. The wildcard route may mechanically forward such a path, but this does not make it a supported or recommended API.
 
 ### grok-image mode
 
@@ -286,7 +325,7 @@ The following APIs are not newly recommended or individually transport-tested in
 |Any other path|Any|HTTP 404 with a localized error|
 |An unsupported method on the paths above|—|HTTP 405 with a localized error|
 
-In `grok-image` mode, the proxy removes the OpenAI-only parameters `size`, `quality`, `style`, `seed`, `background`, `moderation`, `output_format`, and `output_compression`; adds `response_format: "b64_json"` when the request omits it; validates that `n` is an integer between 1 and 10; rejects other invalid requests with HTTP 400 before they reach the upstream; and passes other keys such as `storage_options` through unchanged. The `logging` feature works in this mode as in `passthrough`.
+In `grok-image` mode, the proxy removes the OpenAI-only parameters `size`, `quality`, `style`, `seed`, `background`, `moderation`, `output_format`, and `output_compression`; adds `response_format: "b64_json"` when the request omits it (explicit `b64_json` and `url` values pass through; other values are rejected with HTTP 400); validates that `n` is an integer between 1 and 10; rejects other invalid requests with HTTP 400 before they reach the upstream; and passes other keys such as `storage_options` through unchanged. The `logging` feature works in this mode as in `passthrough`.
 
 `listener.grok_image` is optional and only accepted in `grok-image` mode. It supplies defaults that a direct request value overrides:
 
@@ -403,9 +442,9 @@ Complete `gemini-image` example:
 
 ### logging feature
 
-`listener.features` may be omitted for v0.3-compatible operation, or may contain one `logging` feature. v1.0 rejects duplicate or unknown features and invalid logging settings at startup.
+`listener.features` may be omitted to run without protocol logging, or may contain one `logging` feature. The proxy rejects duplicate or unknown features and invalid logging settings at startup.
 
-- `stdout: true` writes UTF-8 JSON Lines to the container standard output. Follow them with `docker compose logs -f nichellm-proxy`.
+- `stdout: true` (the default) writes UTF-8 JSON Lines to the standard output. In a container, follow them with `docker compose logs -f nichellm-proxy`.
 - `file.enabled: true` writes the same records to `file.path`. The path must be absolute. `max_bytes` and `backup_count` must both be positive; the default example retains the active 10 MiB file plus five rotated files (about 60 MiB total).
 - `capture.bodies` is **false by default**. When true, the proxy captures at most `max_body_bytes` (default 1 MiB, maximum 10 MiB) of textual JSON, text, or SSE request and response bodies. It never delays or reconstructs the forwarded stream.
 - Multipart and binary bodies are not stored. Their byte count, SHA-256 digest, and omission reason are recorded instead. Truncated textual bodies are marked in the record.
@@ -413,12 +452,14 @@ Complete `gemini-image` example:
 
 Enabling body capture intentionally stores user prompts and model output. Use it only in a trusted environment, restrict access to the log volume, and set an operational retention/deletion policy.
 
-Beyond the relay behavior described above, the proxy does not provide protocol conversion or provider adapters other than the `grok-image` and `gemini-image` conversions, webhook receiving or signature verification, Administration API operations, ruri mode, rate limiting, proxy authentication, TLS termination, or multiple listeners.
+### Not supported
+
+Besides the relay behavior described above, the proxy provides no protocol conversion or provider adapters other than the `grok-image` and `gemini-image` conversions. It also does not provide webhook receiving or signature verification, Administration API operations, ruri mode, rate limiting, proxy authentication, TLS termination, or multiple listeners.
 
 ## Security
 
-- nicheLLM Proxy has no proxy authentication or TLS termination. Operate it only inside a trusted network.
-- Do not expose it directly to the internet.
+- nicheLLM Proxy has no proxy authentication or TLS termination. Anyone who can reach the proxy can use your upstream API key and its quota through it. Operate it only inside a trusted network.
+- Do not expose it directly to the internet. To use it across networks, place your own reverse proxy with TLS termination and authentication in front of it. Note that host execution (uv) listens on all interfaces (`0.0.0.0`), while the bundled Compose setups publish only `127.0.0.1:8000`.
 - Treat protocol logs as sensitive data. Body capture is opt-in but can contain prompts, model output, and personal data. Restrict access to the log volume and set an operational retention/deletion policy.
 
 ## Changelog
@@ -426,7 +467,7 @@ Beyond the relay behavior described above, the proxy does not provide protocol c
 ### v1.2.1 (2026-09-09)
 
 - Restructured the README for general users: installation (Docker Compose from source, the published Docker Hub image, local execution with uv), configuration, modes and features, security, and this changelog.
-- Added a requirements overview, update instructions for existing installations, and a Compose example for the published Docker Hub image.
+- Added a requirements overview, a client usage example, update instructions for existing installations, and a Compose example for the published Docker Hub image.
 - Removed developer-facing content: test instructions, translation catalog maintenance, and maintainer image publication steps.
 
 ### v1.2.0 (2026-09-09)
@@ -457,3 +498,7 @@ Beyond the relay behavior described above, the proxy does not provide protocol c
 - Added English (default) and Japanese user-facing proxy messages through `gettext`.
 - Added the English primary README and the equivalent Japanese README.
 - Verified Docker Compose execution and the Japanese proxy-generated error response.
+
+## License
+
+This project is licensed under the MIT License — see [LICENSE](LICENSE).
