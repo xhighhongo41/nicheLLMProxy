@@ -11,13 +11,21 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from niche_llm_proxy.config import ProxyConfig
+from niche_llm_proxy.gemini_image import (
+    GeminiRequestKind,
+    classify_request as classify_gemini_request,
+)
+from niche_llm_proxy.gemini_image import (
+    handle_gemini_image_generations,
+    handle_gemini_models,
+)
 from niche_llm_proxy.grok_image import (
     RequestKind,
-    TransformError,
     classify_request,
     handle_grok_image_generations,
 )
 from niche_llm_proxy.i18n import translate
+from niche_llm_proxy.image_relay import TransformError
 from niche_llm_proxy.logging_feature import ExchangeLog, LoggingRuntime
 from niche_llm_proxy.passthrough import (
     build_upstream_url,
@@ -29,6 +37,16 @@ from niche_llm_proxy.passthrough import (
 )
 
 _FORWARDED_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"]
+
+_UNSUPPORTED_PATH_MESSAGES = {
+    "grok-image": "This path is not supported in 'grok-image' mode.",
+    "gemini-image": "This path is not supported in 'gemini-image' mode.",
+}
+
+_REJECT_ROUTE_EVENTS = {
+    "grok-image": "grok_image_route",
+    "gemini-image": "gemini_image_route",
+}
 
 
 def create_app(
@@ -50,7 +68,7 @@ def create_app(
 
     app = FastAPI(
         title="nicheLLM Proxy",
-        version="1.1.0",
+        version="1.2.0",
         docs_url=None,
         redoc_url=None,
         lifespan=lifespan,
@@ -82,7 +100,26 @@ def create_app(
                     config, exchange, upstream_transport, request
                 )
             if kind in (RequestKind.UNSUPPORTED_PATH, RequestKind.METHOD_NOT_ALLOWED):
-                return _reject_grok_image_route(logging_runtime, request, kind)
+                return _reject_image_route(logging_runtime, request, kind, "grok-image")
+        elif config.listener.mode == "gemini-image":
+            kind = classify_gemini_request(request.url.path, request.method)
+            if kind is GeminiRequestKind.GENERATIONS:
+                exchange = _new_exchange(logging_runtime, request)
+                return await handle_gemini_image_generations(
+                    config, exchange, upstream_transport, request
+                )
+            if kind is GeminiRequestKind.MODELS:
+                exchange = _new_exchange(logging_runtime, request)
+                return await handle_gemini_models(
+                    config, exchange, upstream_transport, request
+                )
+            if kind in (
+                GeminiRequestKind.UNSUPPORTED_PATH,
+                GeminiRequestKind.METHOD_NOT_ALLOWED,
+            ):
+                return _reject_image_route(
+                    logging_runtime, request, kind, "gemini-image"
+                )
         exchange = _new_exchange(logging_runtime, request)
         client = create_http_client(config, transport=upstream_transport)
         upstream_url = build_upstream_url(
@@ -144,18 +181,22 @@ def create_app(
     return app
 
 
-def _reject_grok_image_route(
+def _reject_image_route(
     logging_runtime: LoggingRuntime | None,
     request: Request,
-    kind: RequestKind,
+    kind: RequestKind | GeminiRequestKind,
+    mode: str,
 ) -> JSONResponse:
-    """Reject a route that the grok-image mode does not relay."""
+    """Reject a route that an image listener mode does not relay."""
 
-    status_code = 404 if kind is RequestKind.UNSUPPORTED_PATH else 405
-    message = translate("This path is not supported in 'grok-image' mode.")
+    status_code = 404 if kind.value == "unsupported_path" else 405
+    message = translate(_UNSUPPORTED_PATH_MESSAGES[mode])
     exchange = _new_exchange(logging_runtime, request)
     if exchange is not None:
-        exchange.fail("grok_image_route", TransformError(status_code, message))
+        exchange.fail(
+            _REJECT_ROUTE_EVENTS[mode],
+            TransformError(status_code, message),
+        )
     return JSONResponse(status_code=status_code, content={"detail": message})
 
 

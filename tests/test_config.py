@@ -382,3 +382,202 @@ def test_load_config_validates_grok_image_resolution(
     else:
         with pytest.raises(ConfigError, match="resolution"):
             load_config(write_config(settings))
+
+
+def test_load_config_accepts_gemini_image_mode(
+    monkeypatch: pytest.MonkeyPatch,
+    write_config: Callable[[dict[str, object] | None], Path],
+) -> None:
+    """Accept gemini-image mode without a gemini_image object."""
+    monkeypatch.setenv("UPSTREAM_API_KEY", "secret-value")
+    config = load_config(
+        write_config({"listener": {"port": 8000, "mode": "gemini-image"}})
+    )
+
+    assert config.listener.mode == "gemini-image"
+    assert config.listener.gemini_image is None
+
+
+def test_load_config_reads_gemini_image_settings(
+    monkeypatch: pytest.MonkeyPatch,
+    write_config: Callable[[dict[str, object] | None], Path],
+) -> None:
+    """Read gemini-image mode settings into the configuration object."""
+    monkeypatch.setenv("UPSTREAM_API_KEY", "secret-value")
+    config = load_config(
+        write_config(
+            {
+                "listener": {
+                    "port": 8000,
+                    "mode": "gemini-image",
+                    "gemini_image": {
+                        "default_model": "gemini-3-pro-image-preview",
+                        "aspect_ratio": "1:1",
+                    },
+                }
+            }
+        )
+    )
+
+    assert config.listener.mode == "gemini-image"
+    gemini_image = config.listener.gemini_image
+    assert gemini_image is not None
+    assert gemini_image.default_model == "gemini-3-pro-image-preview"
+    assert gemini_image.aspect_ratio == "1:1"
+
+
+@pytest.mark.parametrize("mode", ["passthrough", "grok-image"])
+def test_load_config_rejects_gemini_image_in_other_modes(
+    monkeypatch: pytest.MonkeyPatch,
+    write_config: Callable[[dict[str, object] | None], Path],
+    mode: str,
+) -> None:
+    """Reject a gemini_image object when the listener runs in another mode."""
+    monkeypatch.setenv("UPSTREAM_API_KEY", "secret-value")
+    with pytest.raises(ConfigError, match="gemini-image"):
+        load_config(
+            write_config(
+                {
+                    "listener": {
+                        "port": 8000,
+                        "mode": mode,
+                        "gemini_image": {
+                            "default_model": "gemini-3-pro-image-preview"
+                        },
+                    }
+                }
+            )
+        )
+
+
+@pytest.mark.parametrize(
+    "gemini_image",
+    ["not-an-object", [{"default_model": "gemini-3-pro-image-preview"}], 123, True],
+)
+def test_load_config_rejects_non_object_gemini_image(
+    monkeypatch: pytest.MonkeyPatch,
+    write_config: Callable[[dict[str, object] | None], Path],
+    gemini_image: object,
+) -> None:
+    """Reject a gemini_image value that is not an object."""
+    monkeypatch.setenv("UPSTREAM_API_KEY", "secret-value")
+    with pytest.raises(ConfigError, match="must be an object"):
+        load_config(
+            write_config(
+                {
+                    "listener": {
+                        "port": 8000,
+                        "mode": "gemini-image",
+                        "gemini_image": gemini_image,
+                    }
+                }
+            )
+        )
+
+
+def test_load_config_rejects_unknown_gemini_image_field(
+    monkeypatch: pytest.MonkeyPatch,
+    write_config: Callable[[dict[str, object] | None], Path],
+) -> None:
+    """Reject an unknown field inside the gemini_image object."""
+    monkeypatch.setenv("UPSTREAM_API_KEY", "secret-value")
+    with pytest.raises(ConfigError, match="unknown"):
+        load_config(
+            write_config(
+                {
+                    "listener": {
+                        "port": 8000,
+                        "mode": "gemini-image",
+                        "gemini_image": {
+                            "default_model": "gemini-3-pro-image-preview",
+                            "resolution": "1k",
+                        },
+                    }
+                }
+            )
+        )
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("default_model", ""),
+        ("default_model", 123),
+        ("aspect_ratio", ""),
+        ("aspect_ratio", 123),
+    ],
+)
+def test_load_config_rejects_invalid_gemini_image_string_field(
+    monkeypatch: pytest.MonkeyPatch,
+    write_config: Callable[[dict[str, object] | None], Path],
+    field: str,
+    value: object,
+) -> None:
+    """Reject an empty or non-string gemini_image string field."""
+    monkeypatch.setenv("UPSTREAM_API_KEY", "secret-value")
+    with pytest.raises(ConfigError, match="non-empty string"):
+        load_config(
+            write_config(
+                {
+                    "listener": {
+                        "port": 8000,
+                        "mode": "gemini-image",
+                        "gemini_image": {field: value},
+                    }
+                }
+            )
+        )
+
+
+def test_load_config_accepts_null_gemini_image_fields(
+    monkeypatch: pytest.MonkeyPatch,
+    write_config: Callable[[dict[str, object] | None], Path],
+) -> None:
+    """Treat null gemini_image fields as unset defaults."""
+    monkeypatch.setenv("UPSTREAM_API_KEY", "secret-value")
+    config = load_config(
+        write_config(
+            {
+                "listener": {
+                    "port": 8000,
+                    "mode": "gemini-image",
+                    "gemini_image": {
+                        "default_model": None,
+                        "aspect_ratio": None,
+                    },
+                }
+            }
+        )
+    )
+
+    gemini_image = config.listener.gemini_image
+    assert gemini_image is not None
+    assert gemini_image.default_model is None
+    assert gemini_image.aspect_ratio is None
+
+
+def test_load_config_reports_supported_modes_in_mode_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Report every supported mode in the listener mode validation error."""
+    config_path = tmp_path / "invalid.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "listener": {"port": 8000, "mode": "unknown"},
+                "upstream": {
+                    "base_url": "https://upstream.example.test",
+                    "api_key_env": "UPSTREAM_API_KEY",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("UPSTREAM_API_KEY", "secret-value")
+
+    with pytest.raises(
+        ConfigError,
+        match="must be 'passthrough', 'grok-image' or 'gemini-image'",
+    ):
+        load_config(config_path)

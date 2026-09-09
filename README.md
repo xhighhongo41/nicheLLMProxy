@@ -1,6 +1,6 @@
 # nicheLLM Proxy
 
-nicheLLM Proxy relays HTTP requests and responses between an OpenAI-compatible client and an upstream LLM provider. The `passthrough` mode forwards without transformation, and the `grok-image` mode added in v1.1 presents Grok (xAI) image generation through an OpenAI-compatible interface. Both modes support one listener in a trusted network and opt-in structured protocol logging.
+nicheLLM Proxy relays HTTP requests and responses between an OpenAI-compatible client and an upstream LLM provider. The `passthrough` mode forwards without transformation, the `grok-image` mode added in v1.1 presents Grok (xAI) image generation through an OpenAI-compatible interface, and the `gemini-image` mode added in v1.2 presents Google Gemini image generation through an OpenAI-compatible interface. All modes support one listener in a trusted network and opt-in structured protocol logging.
 
 [日本語版 README](README_ja.md)
 
@@ -32,7 +32,7 @@ Other non-deprecated OpenAI HTTP endpoints are not blocked by the wildcard route
 ## Not supported
 
 - WebSocket, WebRTC, or SIP transport, including Realtime API and the Responses WebSocket mode. HTTP SSE is supported, but it is not a bidirectional WebSocket replacement.
-- Protocol conversion or provider adapters other than the `grok-image` mode's OpenAI Images to xAI conversion, including OpenAI/Anthropic protocol conversion and Azure, Gemini, or other provider-specific authentication or URL conversion.
+- Protocol conversion or provider adapters other than the `grok-image` mode's OpenAI Images to xAI conversion and the `gemini-image` mode's OpenAI Images to Gemini conversion, including OpenAI/Anthropic protocol conversion and Azure or other provider-specific authentication or URL conversion.
 - Webhook receiving or signature verification, Administration API operations, ruri mode, rate limiting, proxy authentication, TLS termination, or multiple listeners.
 - Safe direct exposure to the public internet.
 
@@ -83,6 +83,7 @@ Do not put an API key value in the configuration JSON. Specify only the environm
 |---|---|---|
 |`UPSTREAM_API_KEY`|Yes|API key sent to the upstream provider. Its name must match `api_key_env`.|
 |`XAI_API_KEY`|No|API key sent to xAI by the `grok-image` mode example. Its name must match `api_key_env`.|
+|`GEMINI_API_KEY`|No|API key sent to Google by the `gemini-image` mode example. Its name must match `api_key_env`.|
 |`NICHELLM_CONFIG_PATH`|No|Path to the configuration JSON. The default is `/app/config/config.json`; set it for host execution.|
 |`NICHELLM_LANGUAGE`|No|Language for proxy-generated messages: `en` (default) or `ja`. Values such as `ja-JP` are treated as `ja`; unsupported values fall back to English.|
 
@@ -90,13 +91,22 @@ The proxy replaces a client-supplied `Authorization` header with the configured 
 
 ### Listener modes
 
-`listener.mode` accepts `passthrough` (the example above) or `grok-image`. `passthrough` forwards requests and responses without transformation. `grok-image` presents Grok (xAI) image generation through an OpenAI-compatible interface:
+`listener.mode` accepts `passthrough` (the example above), `grok-image`, or `gemini-image`. `passthrough` forwards requests and responses without transformation. `grok-image` presents Grok (xAI) image generation through an OpenAI-compatible interface:
 
 |Path|Method|Behavior|
 |---|---|---|
 |`/v1/images/generations`|POST|OpenAI Images request translated to the xAI image generation API; response made OpenAI-compatible|
 |`/v1/models`|GET|Forwarded to the upstream without transformation|
 |`/v1/image-generation-models`|GET|Forwarded to the upstream without transformation|
+|Any other path|Any|HTTP 404 with a localized error|
+|An unsupported method on the paths above|—|HTTP 405 with a localized error|
+
+`gemini-image` presents Google Gemini image generation through an OpenAI-compatible interface, using the Gemini API's OpenAI compatibility layer:
+
+|Path|Method|Behavior|
+|---|---|---|
+|`/v1/images/generations`|POST|Forwarded to `/v1beta/openai/images/generations`; response made OpenAI-compatible|
+|`/v1/models`|GET|Forwarded to `/v1beta/openai/models` without transformation|
 |Any other path|Any|HTTP 404 with a localized error|
 |An unsupported method on the paths above|—|HTTP 405 with a localized error|
 
@@ -110,7 +120,16 @@ In `grok-image` mode, the proxy removes the OpenAI-only parameters `size`, `qual
 - `aspect_ratio`: added when the request omits `aspect_ratio` (for example `1:1` or `16:9`).
 - `resolution`: added when the request omits `resolution`. It must be `1k` or `2k`.
 
-Specifying `grok_image` in `passthrough` mode is a startup configuration error. A complete example is available as `config.grok-image.example.json`:
+In `gemini-image` mode, the proxy adds `response_format: "b64_json"` when the request omits it; validates that `n` is an integer between 1 and 10; rejects `response_format` values other than `b64_json`, and other invalid requests, with HTTP 400 before they reach the upstream; passes other keys such as `size` and `quality` through unchanged; and adds the configured `aspect_ratio` default only when the request has neither `size` nor `aspect_ratio`. Image data always comes back as base64-encoded JPEG. The `logging` feature works in this mode as in `passthrough`.
+
+Model availability for image generation through the OpenAI compatibility layer is restricted by Google to a whitelist. As of 2026-09-09, `gemini-3-pro-image-preview` is the only model verified to work, and `gemini-2.5-flash-image` is documented but reaches its end of life on 2026-10-02. The GA model names `gemini-3-pro-image` and `gemini-3.1-flash-image` currently return HTTP 404 through this layer and cannot be used.
+
+`listener.gemini_image` is optional and only accepted in `gemini-image` mode. It supplies defaults that a direct request value overrides:
+
+- `default_model`: used when the request has no `model`. If neither is present, the proxy returns HTTP 400.
+- `aspect_ratio`: added when the request has neither `size` nor `aspect_ratio` (for example `1:1` or `16:9`).
+
+Specifying `grok_image` in `passthrough` mode, or `gemini_image` outside `gemini-image` mode, is a startup configuration error. Complete examples are available as `config.grok-image.example.json` and `config.gemini-image.example.json`:
 
 ```json
 {
@@ -146,6 +165,49 @@ Specifying `grok_image` in `passthrough` mode is a startup configuration error. 
   "upstream": {
     "base_url": "https://api.x.ai",
     "api_key_env": "XAI_API_KEY"
+  },
+  "timeouts": {
+    "connect_seconds": 10,
+    "read_seconds": 120
+  }
+}
+```
+
+The complete `gemini-image` mode example:
+
+```json
+{
+  "listener": {
+    "port": 8000,
+    "mode": "gemini-image",
+    "gemini_image": {
+      "default_model": "gemini-3-pro-image-preview",
+      "aspect_ratio": "1:1"
+    },
+    "features": [
+      {
+        "name": "logging",
+        "config": {
+          "stdout": true,
+          "file": {
+            "enabled": true,
+            "path": "/var/log/nichellm/proxy.jsonl",
+            "max_bytes": 10485760,
+            "backup_count": 5
+          },
+          "capture": {"bodies": false, "max_body_bytes": 1048576},
+          "redaction": {
+            "additional_header_names": [],
+            "additional_query_parameter_names": [],
+            "additional_json_field_names": []
+          }
+        }
+      }
+    ]
+  },
+  "upstream": {
+    "base_url": "https://generativelanguage.googleapis.com",
+    "api_key_env": "GEMINI_API_KEY"
   },
   "timeouts": {
     "connect_seconds": 10,
@@ -254,12 +316,18 @@ msgfmt --check \
 Release tags are published as multi-platform (`linux/amd64`, `linux/arm64`) images at `<DOCKERHUB_USERNAME>/nichellm-proxy`. Use an exact version tag in production:
 
 ```bash
-docker pull <DOCKERHUB_USERNAME>/nichellm-proxy:1.1.0
+docker pull <DOCKERHUB_USERNAME>/nichellm-proxy:1.2.0
 ```
 
 Maintainers: create a public Docker Hub repository named `nichellm-proxy`, create an expiring Read & Write Docker Hub personal access token, and store it as the GitHub Actions secret `DOCKERHUB_TOKEN`. Store the Docker Hub username as the GitHub Actions variable `DOCKERHUB_USERNAME`. Pushing an annotated `vX.Y.Z` Git tag runs tests and then publishes `X.Y.Z`, `X.Y`, and `latest`, including SBOM and provenance. Never commit the token.
 
 ## Release history
+
+### v1.2.0 (2026-09-09)
+
+- Added the `gemini-image` listener mode, which presents Google Gemini image generation through an OpenAI-compatible interface using the Gemini API's OpenAI compatibility layer: `POST /v1/images/generations` is forwarded to `/v1beta/openai/images/generations` and the response is made OpenAI-compatible, while `GET /v1/models` is forwarded to `/v1beta/openai/models` without transformation.
+- Added the optional `listener.gemini_image` settings for `default_model` and `aspect_ratio` defaults.
+- Extended the protocol logging feature to the `gemini-image` mode and added the `XAI_API_KEY` and `GEMINI_API_KEY` environment pass-through to the Docker Compose environment.
 
 ### v1.1.0 (2026-09-08)
 

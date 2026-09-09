@@ -1,6 +1,6 @@
 # nicheLLM Proxy
 
-nicheLLM Proxyは、OpenAI互換クライアントと上流LLMプロバイダーの間でHTTPリクエストとレスポンスを中継します。`passthrough`モードは変換せずに転送し、v1.1で追加された`grok-image`モードは、Grok(xAI)の画像生成をOpenAI互換インターフェースとして提供します。どちらのモードでも、信頼できるネットワーク内での単一listener運用と、opt-inの構造化プロトコルログを利用できます。
+nicheLLM Proxyは、OpenAI互換クライアントと上流LLMプロバイダーの間でHTTPリクエストとレスポンスを中継します。`passthrough`モードは変換せずに転送し、v1.1で追加された`grok-image`モードはGrok(xAI)の画像生成をOpenAI互換インターフェースとして提供し、v1.2で追加された`gemini-image`モードはGoogle Geminiの画像生成をOpenAI互換インターフェースとして提供します。いずれのモードでも、信頼できるネットワーク内での単一listener運用と、opt-inの構造化プロトコルログを利用できます。
 
 [English README](README.md)
 
@@ -32,7 +32,7 @@ nicheLLM Proxyは、OpenAI互換クライアントと上流LLMプロバイダー
 ## サポートしないこと
 
 - Realtime APIとResponses WebSocket modeを含むWebSocket、WebRTC、SIP通信。HTTP SSEには対応しますが、双方向WebSocketの代替ではありません。
-- `grok-image`モードのOpenAI ImagesからxAIへの変換を除くプロトコル変換またはプロバイダーアダプター。OpenAI/Anthropicのプロトコル変換、Azure、Geminiその他のプロバイダー固有認証・URL変換を含む。
+- `grok-image`モードのOpenAI ImagesからxAIへの変換と、`gemini-image`モードのOpenAI ImagesからGeminiへの変換を除くプロトコル変換またはプロバイダーアダプター。OpenAI/Anthropicのプロトコル変換、Azureその他のプロバイダー固有認証・URL変換を含む。
 - webhook受信・署名検証、Administration API操作、ruri mode、レート制限、プロキシ自身の認証、TLS終端、複数listener。
 - インターネットへの安全な直接公開。
 
@@ -83,6 +83,7 @@ nicheLLM Proxyは、OpenAI互換クライアントと上流LLMプロバイダー
 |---|---|---|
 |`UPSTREAM_API_KEY`|はい|上流プロバイダーへ送るAPIキー。`api_key_env`と同じ名前にします。|
 |`XAI_API_KEY`|いいえ|`grok-image`モードの設定例がxAIへ送るAPIキー。`api_key_env`と同じ名前にします。|
+|`GEMINI_API_KEY`|いいえ|`gemini-image`モードの設定例がGoogleへ送るAPIキー。`api_key_env`と同じ名前にします。|
 |`NICHELLM_CONFIG_PATH`|いいえ|設定JSONへのパス。既定値は`/app/config/config.json`です。ホスト実行時は指定してください。|
 |`NICHELLM_LANGUAGE`|いいえ|プロキシ自身が生成するメッセージの言語。`en`（既定）または`ja`を指定します。`ja-JP`のような値は`ja`として扱い、未対応値は英語へフォールバックします。|
 
@@ -90,13 +91,22 @@ nicheLLM Proxyは、OpenAI互換クライアントと上流LLMプロバイダー
 
 ### リスナーモード
 
-`listener.mode`には`passthrough`（上記の例）または`grok-image`を指定できます。`passthrough`はリクエストとレスポンスを変換せずに転送します。`grok-image`は、Grok(xAI)の画像生成をOpenAI互換インターフェースとして提供します。
+`listener.mode`には`passthrough`（上記の例）、`grok-image`または`gemini-image`を指定できます。`passthrough`はリクエストとレスポンスを変換せずに転送します。`grok-image`は、Grok(xAI)の画像生成をOpenAI互換インターフェースとして提供します。
 
 |経路|メソッド|動作|
 |---|---|---|
 |`/v1/images/generations`|POST|OpenAI ImagesリクエストをxAI画像生成APIへ変換して転送し、応答をOpenAI互換に整形|
 |`/v1/models`|GET|上流へ無変換で転送|
 |`/v1/image-generation-models`|GET|上流へ無変換で転送|
+|上記以外の経路|任意|ローカライズ済みエラーを伴うHTTP 404|
+|上記経路の未対応メソッド|—|ローカライズ済みエラーを伴うHTTP 405|
+
+`gemini-image`は、Gemini APIのOpenAI互換層を使って、Google Geminiの画像生成をOpenAI互換インターフェースとして提供します。
+
+|経路|メソッド|動作|
+|---|---|---|
+|`/v1/images/generations`|POST|`/v1beta/openai/images/generations`へ転送し、応答をOpenAI互換に整形|
+|`/v1/models`|GET|`/v1beta/openai/models`へ無変換で転送|
 |上記以外の経路|任意|ローカライズ済みエラーを伴うHTTP 404|
 |上記経路の未対応メソッド|—|ローカライズ済みエラーを伴うHTTP 405|
 
@@ -110,7 +120,16 @@ nicheLLM Proxyは、OpenAI互換クライアントと上流LLMプロバイダー
 - `aspect_ratio`: リクエストに`aspect_ratio`がない場合に付与します（例: `1:1`、`16:9`）。
 - `resolution`: リクエストに`resolution`がない場合に付与します。`1k`または`2k`です。
 
-`passthrough`モードで`grok_image`を指定すると起動時の設定エラーになります。完全な例は`config.grok-image.example.json`にあります。
+`gemini-image`モードでは、プロキシはリクエストに`response_format`がなければ`b64_json`を付与し、`n`が1から10の整数であることを検証し、`response_format`が`b64_json`以外の場合やその他不正リクエストは上流へ送る前にHTTP 400で拒否し、`size`や`quality`などそれ以外のキーはそのまま透過し、リクエストに`size`と`aspect_ratio`の両方がない場合にのみ設定した`aspect_ratio`既定値を付与します。画像データは常にbase64エンコードされたJPEGで返ります。`logging` featureはこのモードでも`passthrough`と同様に機能します。
+
+OpenAI互換層での画像生成に使えるモデルは、Googleによるホワイトリストに制限されます。2026-09-09時点で動作を確認済みなのは`gemini-3-pro-image-preview`のみで、`gemini-2.5-flash-image`は公式文書に記載がありますが2026-10-02に提供終了予定です。GA名の`gemini-3-pro-image`と`gemini-3.1-flash-image`は現在この層経由ではHTTP 404となり利用できません。
+
+`listener.gemini_image`は任意で、`gemini-image`モードでのみ指定できます。リクエストでの直接指定が優先される既定値を持ちます。
+
+- `default_model`: リクエストに`model`がない場合に使う既定モデル。リクエスト・設定の双方にない場合はHTTP 400を返します。
+- `aspect_ratio`: リクエストに`size`と`aspect_ratio`の両方がない場合に付与します（例: `1:1`、`16:9`）。
+
+`passthrough`モードで`grok_image`を指定した場合、および`gemini-image`モード以外で`gemini_image`を指定した場合は起動時の設定エラーになります。完全な例は`config.grok-image.example.json`と`config.gemini-image.example.json`にあります。
 
 ```json
 {
@@ -146,6 +165,49 @@ nicheLLM Proxyは、OpenAI互換クライアントと上流LLMプロバイダー
   "upstream": {
     "base_url": "https://api.x.ai",
     "api_key_env": "XAI_API_KEY"
+  },
+  "timeouts": {
+    "connect_seconds": 10,
+    "read_seconds": 120
+  }
+}
+```
+
+`gemini-image`モードの完全な設定例は次のとおりです。
+
+```json
+{
+  "listener": {
+    "port": 8000,
+    "mode": "gemini-image",
+    "gemini_image": {
+      "default_model": "gemini-3-pro-image-preview",
+      "aspect_ratio": "1:1"
+    },
+    "features": [
+      {
+        "name": "logging",
+        "config": {
+          "stdout": true,
+          "file": {
+            "enabled": true,
+            "path": "/var/log/nichellm/proxy.jsonl",
+            "max_bytes": 10485760,
+            "backup_count": 5
+          },
+          "capture": {"bodies": false, "max_body_bytes": 1048576},
+          "redaction": {
+            "additional_header_names": [],
+            "additional_query_parameter_names": [],
+            "additional_json_field_names": []
+          }
+        }
+      }
+    ]
+  },
+  "upstream": {
+    "base_url": "https://generativelanguage.googleapis.com",
+    "api_key_env": "GEMINI_API_KEY"
   },
   "timeouts": {
     "connect_seconds": 10,
@@ -254,12 +316,18 @@ msgfmt --check \
 release tagは`<DOCKERHUB_USERNAME>/nichellm-proxy`へ、multi-platform（`linux/amd64`、`linux/arm64`）imageとして公開します。本番では正確なversion tagを利用してください。
 
 ```bash
-docker pull <DOCKERHUB_USERNAME>/nichellm-proxy:1.1.0
+docker pull <DOCKERHUB_USERNAME>/nichellm-proxy:1.2.0
 ```
 
 maintainerはDocker Hubに`nichellm-proxy`というpublic repositoryを作成し、有効期限付きのRead & Write Personal Access Tokenを作成します。GitHub Actions secret `DOCKERHUB_TOKEN`にPATを、GitHub Actions variable `DOCKERHUB_USERNAME`にDocker Hub usernameを登録してください。注釈付きGit tag `vX.Y.Z`のpushでtest後に`X.Y.Z`、`X.Y`、`latest`をSBOMとprovenance付きで公開します。tokenは絶対にcommitしないでください。
 
 ## 変更履歴
+
+### v1.2.0（2026-09-09）
+
+- Gemini APIのOpenAI互換層を使って、Google Geminiの画像生成をOpenAI互換インターフェースとして提供する`gemini-image` listenerモードを追加しました。`POST /v1/images/generations`は`/v1beta/openai/images/generations`へ転送して応答をOpenAI互換に整形し、`GET /v1/models`は`/v1beta/openai/models`へ無変換で転送します。
+- `default_model`と`aspect_ratio`の既定値を指定する任意の`listener.gemini_image`設定を追加しました。
+- プロトコルログの`logging` featureを`gemini-image`モードにも対応させ、Docker Composeのenvironmentに`XAI_API_KEY`と`GEMINI_API_KEY`の受け渡しを追加しました。
 
 ### v1.1.0（2026-09-08）
 

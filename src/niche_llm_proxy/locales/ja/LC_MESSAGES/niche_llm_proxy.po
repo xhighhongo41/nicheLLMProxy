@@ -1,6 +1,6 @@
 msgid ""
 msgstr ""
-"Project-Id-Version: nicheLLM Proxy 1.1.0\n"
+"Project-Id-Version: nicheLLM Proxy 1.2.0\n"
 "PO-Revision-Date: 2026-07-26 00:00+0000\n"
 "Last-Translator: nicheLLM Proxy contributors\n"
 "Language-Team: Japanese\n"
@@ -30,8 +30,8 @@ msgstr "設定項目 '{key}' はオブジェクトである必要があります
 msgid "listener.port must be an integer between 1 and 65535."
 msgstr "listener.port は1から65535までの整数である必要があります。"
 
-msgid "listener.mode must be 'passthrough' or 'grok-image'."
-msgstr "listener.mode は 'passthrough' または 'grok-image' である必要があります。"
+msgid "listener.mode must be 'passthrough', 'grok-image' or 'gemini-image'."
+msgstr "listener.mode は 'passthrough'、'grok-image' または 'gemini-image' である必要があります。"
 
 msgid "listener.grok_image is only supported in 'grok-image' mode."
 msgstr "listener.grok_image は 'grok-image' モードでのみ指定できます。"
@@ -41,6 +41,12 @@ msgstr "listener.grok_image.{key} は空でない文字列である必要があ�
 
 msgid "listener.grok_image.resolution must be '1k' or '2k'."
 msgstr "listener.grok_image.resolution は '1k' または '2k' である必要があります。"
+
+msgid "listener.gemini_image is only supported in 'gemini-image' mode."
+msgstr "listener.gemini_image は 'gemini-image' モードでのみ指定できます。"
+
+msgid "listener.gemini_image.{key} must be a non-empty string."
+msgstr "listener.gemini_image.{key} は空でない文字列である必要があります。"
 
 msgid "listener.features must be an array."
 msgstr "listener.features は配列である必要があります。"
@@ -99,6 +105,9 @@ msgstr "上流プロバイダーへ接続できません。"
 msgid "This path is not supported in 'grok-image' mode."
 msgstr "この経路は 'grok-image' モードではサポートされていません。"
 
+msgid "This path is not supported in 'gemini-image' mode."
+msgstr "この経路は 'gemini-image' モードではサポートされていません。"
+
 msgid "Request body must be a JSON object in 'grok-image' mode."
 msgstr "'grok-image' モードでは、リクエスト本文はJSONオブジェクトである必要があります。"
 
@@ -113,3 +122,9 @@ msgstr "'n' は1から10までの整数である必要があります。"
 
 msgid "'response_format' must be 'url' or 'b64_json'."
 msgstr "'response_format' は 'url' または 'b64_json' である必要があります。"
+
+msgid "Request body must be a JSON object in 'gemini-image' mode."
+msgstr "'gemini-image' モードでは、リクエスト本文はJSONオブジェクトである必要があります。"
+
+msgid "'response_format' must be 'b64_json' in 'gemini-image' mode."
+msgstr "'gemini-image' モードでは、'response_format' は 'b64_json' である必要があります。"

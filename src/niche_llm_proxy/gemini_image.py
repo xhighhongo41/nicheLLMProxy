@@ -1,4 +1,4 @@
-"""Image generation request/response transformation for xAI Grok."""
+"""Image generation request/response transformation for Google Gemini."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ import httpx
 from fastapi import Request
 from fastapi.responses import Response
 
-from niche_llm_proxy.config import GrokImageConfig, ProxyConfig
+from niche_llm_proxy.config import GeminiImageConfig, ProxyConfig
 from niche_llm_proxy.i18n import translate
 from niche_llm_proxy.image_relay import (
     TransformError,
@@ -19,65 +19,41 @@ from niche_llm_proxy.image_relay import (
 )
 from niche_llm_proxy.logging_feature import ExchangeLog
 
-transform_response_body = ensure_created
-"""Backward-compatible alias for :func:`niche_llm_proxy.image_relay.ensure_created`."""
-
-__all__ = [
-    "RequestKind",
-    "TransformError",
-    "classify_request",
-    "handle_grok_image_generations",
-    "transform_request_body",
-    "transform_response_body",
-]
-
-_REMOVED_KEYS = frozenset(
-    {
-        "size",
-        "quality",
-        "style",
-        "seed",
-        "background",
-        "moderation",
-        "output_format",
-        "output_compression",
-    }
-)
+GEMINI_GENERATIONS_PATH = "/v1beta/openai/images/generations"
+GEMINI_MODELS_PATH = "/v1beta/openai/models"
 
 
-class RequestKind(Enum):
-    """Classification of an incoming grok-image request."""
+class GeminiRequestKind(Enum):
+    """Classification of an incoming gemini-image request."""
 
     GENERATIONS = "generations"
     MODELS = "models"
-    IMAGE_GENERATION_MODELS = "image_generation_models"
     UNSUPPORTED_PATH = "unsupported_path"
     METHOD_NOT_ALLOWED = "method_not_allowed"
 
 
-def classify_request(path: str, method: str) -> RequestKind:
+def classify_request(path: str, method: str) -> GeminiRequestKind:
     """Classify an incoming request by path and HTTP method."""
 
     clean_path = path.split("?", 1)[0]
     upper_method = method.upper()
 
     route_methods = {
-        "/v1/images/generations": ("POST", RequestKind.GENERATIONS),
-        "/v1/models": ("GET", RequestKind.MODELS),
-        "/v1/image-generation-models": ("GET", RequestKind.IMAGE_GENERATION_MODELS),
+        "/v1/images/generations": ("POST", GeminiRequestKind.GENERATIONS),
+        "/v1/models": ("GET", GeminiRequestKind.MODELS),
     }
 
     if clean_path not in route_methods:
-        return RequestKind.UNSUPPORTED_PATH
+        return GeminiRequestKind.UNSUPPORTED_PATH
 
     expected_method, kind = route_methods[clean_path]
     if upper_method != expected_method:
-        return RequestKind.METHOD_NOT_ALLOWED
+        return GeminiRequestKind.METHOD_NOT_ALLOWED
     return kind
 
 
-def transform_request_body(body: bytes, settings: GrokImageConfig | None) -> bytes:
-    """Transform an OpenAI-style images/generations request for Grok."""
+def transform_request_body(body: bytes, settings: GeminiImageConfig | None) -> bytes:
+    """Transform an OpenAI-style images/generations request for Gemini."""
 
     try:
         data = json.loads(body.decode("utf-8"))
@@ -85,7 +61,7 @@ def transform_request_body(body: bytes, settings: GrokImageConfig | None) -> byt
         raise TransformError(
             status_code=400,
             message=translate(
-                "Request body must be a JSON object in 'grok-image' mode."
+                "Request body must be a JSON object in 'gemini-image' mode."
             ),
         ) from error
 
@@ -93,7 +69,7 @@ def transform_request_body(body: bytes, settings: GrokImageConfig | None) -> byt
         raise TransformError(
             status_code=400,
             message=translate(
-                "Request body must be a JSON object in 'grok-image' mode."
+                "Request body must be a JSON object in 'gemini-image' mode."
             ),
         )
 
@@ -130,47 +106,66 @@ def transform_request_body(body: bytes, settings: GrokImageConfig | None) -> byt
     response_format = data.get("response_format")
     if response_format is None:
         response_format = "b64_json"
-    if (
-        not isinstance(response_format, str)
-        or response_format not in {"url", "b64_json"}
-    ):
+    if not isinstance(response_format, str) or response_format != "b64_json":
         raise TransformError(
             status_code=400,
-            message=translate("'response_format' must be 'url' or 'b64_json'."),
+            message=translate(
+                "'response_format' must be 'b64_json' in 'gemini-image' mode."
+            ),
         )
     output["response_format"] = response_format
 
     for key, value in data.items():
-        if key in _REMOVED_KEYS or key in output:
+        if key in output:
             continue
         output[key] = value
 
-    if settings is not None:
-        if "aspect_ratio" not in output and settings.aspect_ratio is not None:
-            output["aspect_ratio"] = settings.aspect_ratio
-        if "resolution" not in output and settings.resolution is not None:
-            output["resolution"] = settings.resolution
+    if (
+        settings is not None
+        and settings.aspect_ratio is not None
+        and "size" not in output
+        and "aspect_ratio" not in output
+    ):
+        output["aspect_ratio"] = settings.aspect_ratio
 
     return json.dumps(output).encode("utf-8")
 
 
-async def handle_grok_image_generations(
+async def handle_gemini_image_generations(
     config: ProxyConfig,
     exchange: ExchangeLog | None,
     upstream_transport: httpx.AsyncBaseTransport | None,
     request: Request,
 ) -> Response:
-    """Relay an images/generations request with Grok-specific transformation."""
+    """Relay an images/generations request with Gemini-specific transformation."""
 
     return await relay_upstream(
         config,
         exchange,
         upstream_transport,
         request,
-        request.url.path,
+        GEMINI_GENERATIONS_PATH,
         transform_request=lambda body: transform_request_body(
-            body, config.listener.grok_image
+            body, config.listener.gemini_image
         ),
         transform_response=ensure_created,
-        error_event="grok_image_transform",
+        error_event="gemini_image_transform",
+    )
+
+
+async def handle_gemini_models(
+    config: ProxyConfig,
+    exchange: ExchangeLog | None,
+    upstream_transport: httpx.AsyncBaseTransport | None,
+    request: Request,
+) -> Response:
+    """Relay a models listing to the Gemini OpenAI-compatible layer unchanged."""
+
+    return await relay_upstream(
+        config,
+        exchange,
+        upstream_transport,
+        request,
+        GEMINI_MODELS_PATH,
+        error_event="gemini_image_transform",
     )
