@@ -28,7 +28,7 @@ export NICHELLM_LANGUAGE=ja  # 任意。既定は英語。
 docker compose up --build -d
 ```
 
-Composeファイルには`GET /health`を30秒間隔で確認するhealthcheckが含まれ、準備が整うと`docker compose ps`で`healthy`と表示されます。プロキシを確認します。
+同梱の`docker-compose.yml`は、`api_key_env`が別の変数(例: `XAI_API_KEY`)を指す場合も`UPSTREAM_API_KEY`の設定を要求します。`UPSTREAM_API_KEY`に何らかの値を設定するか、`environment`の内容を自分の設定に合わせてください。Composeファイルには`GET /health`を30秒間隔で確認するhealthcheckが含まれ、準備が整うと`docker compose ps`で`healthy`と表示されます。プロキシを確認します。
 
 ```bash
 curl http://127.0.0.1:8000/health
@@ -229,9 +229,9 @@ uv sync
 |`timeouts.connect_seconds`|正の数|10.0|
 |`timeouts.read_seconds`|正の数|120.0|
 
-`timeouts`オブジェクト自体も省略でき、既定値のあるキーはすべて省略できます。`listener.port`を変更する場合は、Composeの`ports`マッピングのホスト側も同じ番号に合わせてください。
+`timeouts`オブジェクト自体も省略でき、既定値のあるキーはすべて省略できます。`listener.port`を変更する場合は、Composeの`ports`マッピングのコンテナ側ポートも`listener.port`と一致するように更新してください(例: `"127.0.0.1:8001:8001"`)。同梱`docker-compose.yml`のhealthcheckはコンテナの8000番ポートを確認する固定値のため、`listener.port`が8000の間だけ正確に機能します。
 
-モード固有のキー(`listener.grok_image`、`listener.gemini_image`)と、任意の`listener.features`のloggingフィーチャーは[モードとフィーチャー](#モードとフィーチャー)で説明します。モード固有オブジェクト内の未知キー、不正な値、モード不一致の設定は、起動時の設定エラーとして拒否されます。それ以外の場所の未知キーは黙って無視されるため、設定が効いていないように見える場合はキーのスペル(例: `timeouts`を`timouts`と書く)を確認してください。`grok-image`と`gemini-image`の完全な例は`config.grok-image.example.json`と`config.gemini-image.example.json`にあります。
+モード固有のキー(`listener.grok_image`、`listener.gemini_image`)と、任意の`listener.features`のloggingフィーチャーは[モードとフィーチャー](#モードとフィーチャー)で説明します。モード固有オブジェクト内の未知キー、不正な値、モード不一致の設定は、起動時の設定エラーとして拒否されます。モード固有オブジェクトとloggingフィーチャーの設定以外の場所の未知キーは黙って無視されるため、設定が効いていないように見える場合はキーのスペル(例: `timeouts`を`timouts`と書く)を確認してください。`grok-image`と`gemini-image`の完全な例は`config.grok-image.example.json`と`config.gemini-image.example.json`にあります。
 
 ### 環境変数
 
@@ -255,7 +255,7 @@ uv sync
 export UPSTREAM_API_KEY='your-upstream-api-key'
 ```
 
-Docker Composeでは、Composeファイルと同じ場所に置いた`.env`ファイルが実際の値の置き場所として便利です。Composeが自動的に読み込みます。リポジトリの`.env.example`には、上の表と同じ変数名が並んでいます。
+Docker Composeでは、Composeファイルと同じ場所に置いた`.env`ファイルが実際の値の置き場所として便利です。Composeが自動的に読み込みます。リポジトリの`.env.example`には、上の表のうちAPIキーと言語の環境変数が並んでいます。
 
 プロキシはクライアントが送った`Authorization`ヘッダーを設定した上流Bearer APIキーに置き換え、受信した値は転送しないため、クライアント側に本物の上流キーは不要です。
 
@@ -460,12 +460,22 @@ OpenAI互換層での画像生成に使えるモデルは、Googleによるホ�
 - インターネットへ直接公開しないでください。ネットワーク越しに使う場合は、利用者自身が手前に置くリバースプロキシでTLS終端と認証を行うことを想定しています。ホスト実行(uv)は全インターフェース(`0.0.0.0`)でリッスンしますが、同梱のCompose構成は`127.0.0.1:8000`のみを公開します。
 - プロトコルログは機密データとして扱ってください。本文captureはopt-inですが、プロンプト、モデル出力、個人情報を含み得ます。ログボリュームへのアクセスを制限し、保持・削除方針を定めてください。
 
+## トラブルシューティング
+
+起動時の代表的なエラーと確認ポイント:
+
+- `設定ファイルが見つかりません: {path}`(英語: `Configuration file was not found: {path}`) — そのパスに設定JSONがありません。ホスト実行では`NICHELLM_CONFIG_PATH`を、Dockerでは`config.json`のマウントを確認してください。
+- `上流APIキーの環境変数 '{api_key_env}' が設定されていません。`(英語: `Upstream API key environment variable '{api_key_env}' is not set.`) — `api_key_env`が指す変数が設定されていません。シェルでexportするか、Composeファイルと同じ場所の`.env`ファイルに設定してください。
+- 設定が効いていないように見える — モード固有オブジェクトとloggingフィーチャーの設定以外の場所の未知キーは黙って無視されます。キーのスペル(例: `timeouts`を`timouts`と書く)を確認してください。
+
+プロキシ自身が出すエラーメッセージは`NICHELLM_LANGUAGE`に応じてローカライズされます(既定は英語、`ja`で日本語)。
+
 ## 変更履歴
 
 ### v1.2.1（2026-09-09）
 
 - READMEを一般ユーザー向けに再構成しました。インストール（ソースからのDocker Compose、公開Docker Hubイメージ、uvによるローカル実行）、設定、モードとフィーチャー、セキュリティ、この変更履歴の順に構成しました。
-- 動作要件の概要、クライアントからの利用例、既存環境のアップデート手順、公開Docker Hubイメージ用のCompose例を追加しました。
+- 動作要件の概要、クライアントからの利用例、トラブルシューティング節、既存環境のアップデート手順、公開Docker Hubイメージ用のCompose例を追加しました。
 - 開発者向けの内容（テスト手順、翻訳カタログの保守、maintainer向けイメージ公開手順）を削除しました。
 
 ### v1.2.0（2026-09-09）

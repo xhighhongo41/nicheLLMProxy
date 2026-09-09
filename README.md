@@ -28,7 +28,7 @@ export NICHELLM_LANGUAGE=ja  # optional; English is the default
 docker compose up --build -d
 ```
 
-The Compose file includes a healthcheck that probes `GET /health` every 30 seconds; `docker compose ps` shows the service as `healthy` once it is ready. Check the proxy:
+The bundled `docker-compose.yml` requires `UPSTREAM_API_KEY` to be set even when `api_key_env` names a different variable (for example `XAI_API_KEY`); set any value for it, or adjust the `environment` entries to your configuration. The Compose file includes a healthcheck that probes `GET /health` every 30 seconds; `docker compose ps` shows the service as `healthy` once it is ready. Check the proxy:
 
 ```bash
 curl http://127.0.0.1:8000/health
@@ -231,9 +231,9 @@ Common keys:
 |`timeouts.connect_seconds`|positive number|10.0|
 |`timeouts.read_seconds`|positive number|120.0|
 
-The `timeouts` object itself is optional, and every key with a default value can be omitted. If you change `listener.port`, also change the host-side port in the Compose `ports` mapping so both sides match.
+The `timeouts` object itself is optional, and every key with a default value can be omitted. If you change `listener.port`, also update the Compose `ports` mapping so the container-side port matches `listener.port` (for example `"127.0.0.1:8001:8001"`); the healthcheck in the bundled `docker-compose.yml` probes container port 8000, so it stays accurate only while `listener.port` is 8000.
 
-Mode-specific keys (`listener.grok_image`, `listener.gemini_image`) and the optional `listener.features` logging feature are described in [Modes and features](#modes-and-features). Unknown keys inside the mode-specific objects, invalid values, and mode-mismatched settings are rejected as startup configuration errors. Outside those objects, unknown keys are silently ignored — check the key spelling (for example `timouts` instead of `timeouts`) if a setting seems to have no effect. Complete `grok-image` and `gemini-image` examples are available as `config.grok-image.example.json` and `config.gemini-image.example.json`.
+Mode-specific keys (`listener.grok_image`, `listener.gemini_image`) and the optional `listener.features` logging feature are described in [Modes and features](#modes-and-features). Unknown keys inside the mode-specific objects, invalid values, and mode-mismatched settings are rejected as startup configuration errors. Outside the mode-specific objects and the logging feature settings, unknown keys are silently ignored — check the key spelling (for example `timouts` instead of `timeouts`) if a setting seems to have no effect. Complete `grok-image` and `gemini-image` examples are available as `config.grok-image.example.json` and `config.gemini-image.example.json`.
 
 ### Environment variables
 
@@ -257,7 +257,7 @@ Do not put an API key value in the configuration JSON. Specify only the name of 
 export UPSTREAM_API_KEY='your-upstream-api-key'
 ```
 
-For Docker Compose, a `.env` file next to the Compose file is a convenient place for the real values; Compose reads it automatically. `.env.example` in the repository lists the same variables as the table above.
+For Docker Compose, a `.env` file next to the Compose file is a convenient place for the real values; Compose reads it automatically. `.env.example` in the repository lists the API key and language variables from the table above.
 
 The proxy replaces a client-supplied `Authorization` header with the configured upstream Bearer API key and does not forward the received value, so clients never need the real upstream key.
 
@@ -462,12 +462,22 @@ Besides the relay behavior described above, the proxy provides no protocol conve
 - Do not expose it directly to the internet. To use it across networks, place your own reverse proxy with TLS termination and authentication in front of it. Note that host execution (uv) listens on all interfaces (`0.0.0.0`), while the bundled Compose setups publish only `127.0.0.1:8000`.
 - Treat protocol logs as sensitive data. Body capture is opt-in but can contain prompts, model output, and personal data. Restrict access to the log volume and set an operational retention/deletion policy.
 
+## Troubleshooting
+
+Representative startup errors and what to check:
+
+- `Configuration file was not found: {path}` — the configuration JSON is missing at that path. For host execution, check `NICHELLM_CONFIG_PATH`; in Docker, check the `config.json` mount.
+- `Upstream API key environment variable '{api_key_env}' is not set.` — the variable named by `api_key_env` is not set. Export it in your shell, or set it in the `.env` file next to the Compose file.
+- A setting seems to have no effect — unknown keys outside the mode-specific objects and the logging feature settings are silently ignored. Check the key spelling (for example `timouts` instead of `timeouts`).
+
+Error messages the proxy generates are localized with `NICHELLM_LANGUAGE` (English by default, Japanese with `ja`).
+
 ## Changelog
 
 ### v1.2.1 (2026-09-09)
 
 - Restructured the README for general users: installation (Docker Compose from source, the published Docker Hub image, local execution with uv), configuration, modes and features, security, and this changelog.
-- Added a requirements overview, a client usage example, update instructions for existing installations, and a Compose example for the published Docker Hub image.
+- Added a requirements overview, a client usage example, a troubleshooting section, update instructions for existing installations, and a Compose example for the published Docker Hub image.
 - Removed developer-facing content: test instructions, translation catalog maintenance, and maintainer image publication steps.
 
 ### v1.2.0 (2026-09-09)
