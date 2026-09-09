@@ -316,7 +316,7 @@ msgfmt --check \
 Release tags are published as multi-platform (`linux/amd64`, `linux/arm64`) images at `<DOCKERHUB_USERNAME>/nichellm-proxy`. Use an exact version tag in production:
 
 ```bash
-docker pull <DOCKERHUB_USERNAME>/nichellm-proxy:1.1.0
+docker pull <DOCKERHUB_USERNAME>/nichellm-proxy:1.2.0
 ```
 
 Maintainers: create a public Docker Hub repository named `nichellm-proxy`, create an expiring Read & Write Docker Hub personal access token, and store it as the GitHub Actions secret `DOCKERHUB_TOKEN`. Store the Docker Hub username as the GitHub Actions variable `DOCKERHUB_USERNAME`. Pushing an annotated `vX.Y.Z` Git tag runs tests and then publishes `X.Y.Z`, `X.Y`, and `latest`, including SBOM and provenance. Never commit the token.
