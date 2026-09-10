@@ -54,7 +54,7 @@ docker compose exec nichellm-proxy sh -c 'ls -lh /var/log/nichellm'
 公開済みのmulti-platform(`linux/amd64`、`linux/arm64`)イメージは`xhighhongo41/nichellm-proxy`で入手できます。本番では正確なバージョンタグを利用してください。`1.2`や`latest`のようなローリングタグも存在します。
 
 ```bash
-docker pull xhighhongo41/nichellm-proxy:1.2.1
+docker pull xhighhongo41/nichellm-proxy:1.2.2
 ```
 
 イメージにはAPIキーも設定JSONも含まれません。Composeファイルと同じ場所に、設定で使うAPIキー変数を記した`.env`ファイルを作成し([APIキー管理](#apiキー管理)を参照)、作業ディレクトリに`config.json`([設定](#設定)の完全な例から始めてください)と次のComposeファイルを配置します。
@@ -62,7 +62,7 @@ docker pull xhighhongo41/nichellm-proxy:1.2.1
 ```yaml
 services:
   nichellm-proxy:
-    image: xhighhongo41/nichellm-proxy:1.2.1
+    image: xhighhongo41/nichellm-proxy:1.2.2
     ports:
       - "127.0.0.1:8000:8000"
     environment:
@@ -142,7 +142,7 @@ print(response.choices[0].message.content)
 
 ### 既存環境のアップデート
 
-v1.2.1では設定JSONの形式は変更されていません。既存の`config.json`はそのまま動作します。
+v1.2.2では設定JSONの形式は変更されていません。既存の`config.json`はそのまま動作します。
 
 ソースからDocker Composeで実行している場合:
 
@@ -151,7 +151,7 @@ git pull
 docker compose up --build -d
 ```
 
-公開Docker Hubイメージで実行している場合: Composeファイル内のイメージタグを更新し(例: `xhighhongo41/nichellm-proxy:1.2.1`)、次を実行します。
+公開Docker Hubイメージで実行している場合: Composeファイル内のイメージタグを更新し(例: `xhighhongo41/nichellm-proxy:1.2.2`)、次を実行します。
 
 ```bash
 docker compose pull
@@ -452,7 +452,7 @@ OpenAI互換層での画像生成に使えるモデルは、Googleによるホ�
 
 ### サポートしないこと
 
-上記の中継動作に加えて、プロキシは`grok-image`と`gemini-image`の変換以外のプロトコル変換・プロバイダーアダプターを提供しません。また、webhook受信・署名検証、Administration API操作、ruri mode、レート制限、プロキシ自身の認証、TLS終端、複数listenerも提供しません。
+上記の中継動作に加えて、プロキシは`grok-image`と`gemini-image`の変換以外のプロトコル変換・プロバイダーアダプターを提供しません。また、webhook受信・署名検証、Administration API操作、レート制限、プロキシ自身の認証、TLS終端、複数listenerも提供しません。
 
 ## セキュリティ
 
@@ -472,40 +472,13 @@ OpenAI互換層での画像生成に使えるモデルは、Googleによるホ�
 
 ## 変更履歴
 
-### v1.2.1（2026-09-09）
+### v1.2.2（2026-09-10）
 
-- READMEを一般ユーザー向けに再構成しました。インストール（ソースからのDocker Compose、公開Docker Hubイメージ、uvによるローカル実行）、設定、モードとフィーチャー、セキュリティ、この変更履歴の順に構成しました。
-- 動作要件の概要、クライアントからの利用例、トラブルシューティング節、既存環境のアップデート手順、公開Docker Hubイメージ用のCompose例を追加しました。
-- 開発者向けの内容（テスト手順、翻訳カタログの保守、maintainer向けイメージ公開手順）を削除しました。
+- 全リリース履歴を`CHANGELOG.md`へ抽出し、READMEの変更履歴節を最新エントリとリンクのみに圧縮しました。
+- GitHubリポジトリのtopicsとhomepageを設定し、Docker Hubリポジトリのfull descriptionを設定しました。
+- サポートしないこと節から、廃止済みの未実装モードへの言及を除去しました。
 
-### v1.2.0（2026-09-09）
-
-- Gemini APIのOpenAI互換層を使って、Google Geminiの画像生成をOpenAI互換インターフェースとして提供する`gemini-image` listenerモードを追加しました。`POST /v1/images/generations`は`/v1beta/openai/images/generations`へ転送して応答をOpenAI互換に整形し、`GET /v1/models`は`/v1beta/openai/models`へ無変換で転送します。
-- `default_model`と`aspect_ratio`の既定値を指定する任意の`listener.gemini_image`設定を追加しました。
-- プロトコルログの`logging` featureを`gemini-image`モードにも対応させ、Docker Composeのenvironmentに`XAI_API_KEY`と`GEMINI_API_KEY`の受け渡しを追加しました。
-
-### v1.1.0（2026-09-08）
-
-- Grok(xAI)の画像生成をOpenAI互換インターフェースとして提供する`grok-image` listenerモードを追加しました。`POST /v1/images/generations`はOpenAI ImagesからxAI画像生成APIへ変換して転送し、`GET /v1/models`と`GET /v1/image-generation-models`は無変換で転送します。
-- `default_model`、`aspect_ratio`、`resolution`の既定値を指定する任意の`listener.grok_image`設定を追加しました。
-- プロトコルログの`logging` featureを`grok-image`モードにも対応させました。
-
-### v1.0.0（2026-07-31）
-
-- stdout JSON Lines、file出力、サイズベースrotation、上限付き本文capture、credential redactionを備えたopt-in logging featureを追加しました。
-- 永続Docker Compose log volumeと、test・image build・Docker Hub multi-platform公開用のGitHub Actions workflowを追加しました。
-
-### v0.3.0（2026-07-25）
-
-- JSON、Responses HTTP SSE、multipart、バイナリ、Range/206、重複エンドツーエンドheaderに対する生HTTPパススルーを追加しました。
-- 代表的なOpenAI API群の表と、双方向通信、プロトコル変換、deprecatedまたはlegacy APIに関する明確な非対応範囲を追加しました。
-- Authorization置換、read timeoutの挙動、HTTPトランスポートと上流の意味的互換性の境界を明確化しました。
-
-### v0.2.0（2026-07-24）
-
-- `gettext`による英語（既定）／日本語のプロキシ生成メッセージを追加しました。
-- 英語正本のREADMEと、内容が等価な日本語READMEを追加しました。
-- Docker Composeでの実行と、プロキシ生成エラーの日本語応答を確認しました。
+全履歴は英語の[CHANGELOG.md](CHANGELOG.md)を参照してください。
 
 ## ライセンス
 
