@@ -21,7 +21,7 @@ jobs:
           DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USERNAME }}
           DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
         run: |
-          set -eu
+          set -euo pipefail
           cat > /tmp/full_description.md <<'DESCRIPTION_EOF'
           # nicheLLM Proxy
 
@@ -45,14 +45,14 @@ jobs:
 
           The image contains no API key or configuration JSON. See the [GitHub repository](https://github.com/xhighhongo41/nicheLLMProxy) for configuration, usage, and the full documentation in English and Japanese.
           DESCRIPTION_EOF
-          jwt=$(curl -sS -f -X POST https://hub.docker.com/v2/users/login/ \
+          jwt=$(curl -sS --fail-with-body -X POST https://hub.docker.com/v2/users/login/ \
             -H 'Content-Type: application/json' \
             -d "$(jq -n --arg u "$DOCKERHUB_USERNAME" --arg p "$DOCKERHUB_TOKEN" '{username: $u, password: $p}')" \
             | jq -r .token)
           unset DOCKERHUB_TOKEN
           test -n "$jwt"
           jq -n --rawfile d /tmp/full_description.md '{full_description: $d}' > /tmp/payload.json
-          curl -sS -f -X PATCH "https://hub.docker.com/v2/repositories/${DOCKERHUB_USERNAME}/nichellm-proxy/" \
+          curl -sS --fail-with-body -X PATCH "https://hub.docker.com/v2/repositories/${DOCKERHUB_USERNAME}/nichellm-proxy/" \
             -H "Authorization: JWT ${jwt}" \
             -H 'Content-Type: application/json' \
             --data-binary @/tmp/payload.json \
