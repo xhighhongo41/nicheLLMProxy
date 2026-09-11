@@ -68,7 +68,7 @@ def create_app(
 
     app = FastAPI(
         title="nicheLLM Proxy",
-        version="1.2.1",
+        version="1.2.2",
         docs_url=None,
         redoc_url=None,
         lifespan=lifespan,
