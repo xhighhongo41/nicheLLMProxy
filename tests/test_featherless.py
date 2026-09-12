@@ -911,10 +911,10 @@ class TestConcurrencyGateAcquire:
         second_reservation.release()
 
     @pytest.mark.anyio
-    async def test_head_of_line_blocks_smaller_later_waiters(
+    async def test_blocked_head_does_not_block_smaller_later_waiters(
         self, make_gate: Any
     ) -> None:
-        """A blocked head waiter keeps smaller later waiters queued (C7)."""
+        """A smaller later waiter wakes past a blocked head (skip queueing)."""
 
         upstream = _FakeFeatherlessUpstream(used_cost=7)
         gate = make_gate(upstream, settings=_gate_settings(max_queue_wait_seconds=5.0))
@@ -925,17 +925,77 @@ class TestConcurrencyGateAcquire:
         await _wait_for(lambda: gate.queue_length == 2)
 
         reservation.release()
-        await asyncio.sleep(0.05)
-        assert gate.queue_length == 2
+        tail_reservation = await asyncio.wait_for(tail, 1.0)
         assert not head.done()
-        assert not tail.done()
+        assert gate.queue_length == 1
+        assert gate.reserved == 1
 
         upstream.used_cost = 3
         gate.update_upstream_used(3)
         head_reservation = await asyncio.wait_for(head, 1.0)
-        tail_reservation = await asyncio.wait_for(tail, 1.0)
         assert gate.reserved == 5
         head_reservation.release()
+        tail_reservation.release()
+
+    @pytest.mark.anyio
+    async def test_skips_head_waiter_that_does_not_fit(self, make_gate: Any) -> None:
+        """A released budget wakes a fitting later waiter before the blocked head."""
+
+        upstream = _FakeFeatherlessUpstream(used_cost=1)
+        gate = make_gate(
+            upstream,
+            settings=_gate_settings(concurrency_limit=4, max_queue_wait_seconds=5.0),
+        )
+        reservation = await gate.acquire(4)
+        await _wait_for(lambda: gate.upstream_used == 1)
+        head = asyncio.create_task(gate.acquire(4))
+        await _wait_for(lambda: gate.queue_length == 1)
+        tail = asyncio.create_task(gate.acquire(2))
+        await _wait_for(lambda: gate.queue_length == 2)
+
+        reservation.release()
+        tail_reservation = await asyncio.wait_for(tail, 1.0)
+        assert not head.done()
+        assert gate.queue_length == 1
+        assert gate.reserved == 2
+
+        upstream.used_cost = 0
+        gate.update_upstream_used(0)
+        assert not head.done()
+
+        tail_reservation.release()
+        head_reservation = await asyncio.wait_for(head, 1.0)
+        assert gate.reserved == 4
+        head_reservation.release()
+
+    @pytest.mark.anyio
+    async def test_skipped_head_still_times_out(self, make_gate: Any) -> None:
+        """A skipped head waiter still expires with QueueWaitTimeoutError."""
+
+        upstream = _FakeFeatherlessUpstream(used_cost=1)
+        gate = make_gate(
+            upstream,
+            settings=_gate_settings(
+                concurrency_limit=4, max_queue_wait_seconds=0.05
+            ),
+        )
+        reservation = await gate.acquire(4)
+        await _wait_for(lambda: gate.upstream_used == 1)
+        head = asyncio.create_task(gate.acquire(4))
+        await _wait_for(lambda: gate.queue_length == 1)
+        tail = asyncio.create_task(gate.acquire(2))
+        await _wait_for(lambda: gate.queue_length == 2)
+
+        reservation.release()
+        tail_reservation = await asyncio.wait_for(tail, 1.0)
+        assert not head.done()
+
+        with pytest.raises(QueueWaitTimeoutError) as excinfo:
+            await head
+
+        assert excinfo.value.wait_seconds == 0.05
+        assert gate.queue_length == 0
+        assert gate.reserved == 2
         tail_reservation.release()
 
 

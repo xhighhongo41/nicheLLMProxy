@@ -583,9 +583,9 @@ class ConcurrencyGate:
                 self._reserved += waiter.cost
                 waiter.reservation = Reservation(self, waiter.cost)
                 waiter.event.set()
-            else:
-                # FIFO fairness: later waiters must not pass the head (C7).
-                break
+            # Skip queueing: a blocked waiter does not stop later waiters
+            # that fit the remaining budget. Starvation of skipped waiters
+            # is bounded by their own deadline (429 QueueWaitTimeoutError).
 
     def _remove_waiter(self, waiter: _Waiter) -> None:
         if waiter in self._queue:
