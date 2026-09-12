@@ -1,0 +1,44 @@
+{
+  "listener": {
+    "port": 8000,
+    "mode": "featherless",
+    "featherless": {
+      "model_whitelist": [
+        "moonshotai/Kimi-K2.6",
+        "Qwen/Qwen3-Coder-480B"
+      ],
+      "max_queue_wait_seconds": 60,
+      "cache_ttl_seconds": 300
+    },
+    "features": [
+      {
+        "name": "logging",
+        "config": {
+          "stdout": true,
+          "file": {
+            "enabled": true,
+            "path": "/var/log/nichellm/proxy.jsonl",
+            "max_bytes": 10485760,
+            "backup_count": 5
+          },
+          "capture": {
+            "bodies": false,
+            "max_body_bytes": 1048576
+          },
+          "redaction": {
+            "additional_header_names": [],
+            "additional_query_parameter_names": [],
+            "additional_json_field_names": []
+          }
+        }
+      }
+    ]
+  },
+  "upstream": {
+    "base_url": "https://api.featherless.ai"
+  },
+  "timeouts": {
+    "connect_seconds": 10,
+    "read_seconds": 120
+  }
+}

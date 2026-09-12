@@ -1,6 +1,6 @@
 # nicheLLM Proxy
 
-nicheLLM Proxyは、OpenAI互換クライアントと上流LLMプロバイダーの間でHTTPリクエストとレスポンスを中継します。`passthrough`モードは変換せずに転送し、v1.1で追加された`grok-image`モードはGrok(xAI)の画像生成をOpenAI互換インターフェースとして提供し、v1.2で追加された`gemini-image`モードはGoogle Geminiの画像生成をOpenAI互換インターフェースとして提供します。いずれのモードでも、信頼できるネットワーク内での単一listener運用と、opt-inの構造化プロトコルログを利用できます。
+nicheLLM Proxyは、OpenAI互換クライアントと上流LLMプロバイダーの間でHTTPリクエストとレスポンスを中継します。`passthrough`モードは変換せずに転送し、v1.1で追加された`grok-image`モードはGrok(xAI)の画像生成をOpenAI互換インターフェースとして提供し、v1.2で追加された`gemini-image`モードはGoogle Geminiの画像生成をOpenAI互換インターフェースとして提供し、v1.3で追加された`featherless`モードはfeatherless.aiをモデルホワイトリストとAPIキーごとの同時リクエストキューイングで提供します。いずれのモードでも、信頼できるネットワーク内での単一listener運用と、opt-inの構造化プロトコルログを利用できます。
 
 [English README](README.md)
 
@@ -12,7 +12,7 @@ nicheLLM Proxyは、OpenAI互換クライアントと上流LLMプロバイダー
 - ホスト実行にはPython 3.11以降と[uv](https://docs.astral.sh/uv/)。
 - リポジトリのcloneと更新にはGit。
 
-どのセットアップでも、上流LLMプロバイダーのアカウントとAPIキーが必要です。設定JSONファイルについては[設定](#設定)を参照してください。
+どのセットアップでも、上流LLMプロバイダーのアカウントとAPIキーが必要です。設定JSONファイルについては[設定](#設定)を参照してください。`featherless`モードではプロキシ自身はAPIキーを保持せず、各クライアントが自分の`Authorization`ヘッダーを送ります([featherlessモード](#featherlessモード)を参照)。
 
 ### Docker Composeによる起動(ソースから)
 
@@ -28,7 +28,7 @@ export NICHELLM_LANGUAGE=ja  # 任意。既定は英語。
 docker compose up --build -d
 ```
 
-同梱の`docker-compose.yml`は、`api_key_env`が別の変数(例: `XAI_API_KEY`)を指す場合も`UPSTREAM_API_KEY`の設定を要求します。`UPSTREAM_API_KEY`に何らかの値を設定するか、`environment`の内容を自分の設定に合わせてください。Composeファイルには`GET /health`を30秒間隔で確認するhealthcheckが含まれ、準備が整うと`docker compose ps`で`healthy`と表示されます。プロキシを確認します。
+同梱の`docker-compose.yml`は、`api_key_env`が別の変数(例: `XAI_API_KEY`)を指す場合も`UPSTREAM_API_KEY`の設定を要求します。`UPSTREAM_API_KEY`に何らかの値を設定するか、`environment`の内容を自分の設定に合わせてください。`featherless`モードではAPIキー変数が一切不要です。`UPSTREAM_API_KEY`に任意の値を設定するか、`environment`の内容を調整してください。Composeファイルには`GET /health`を30秒間隔で確認するhealthcheckが含まれ、準備が整うと`docker compose ps`で`healthy`と表示されます。プロキシを確認します。
 
 ```bash
 curl http://127.0.0.1:8000/health
@@ -51,10 +51,10 @@ docker compose exec nichellm-proxy sh -c 'ls -lh /var/log/nichellm'
 
 ### 公開Docker Hubイメージによる起動
 
-公開済みのmulti-platform(`linux/amd64`、`linux/arm64`)イメージは`xhighhongo41/nichellm-proxy`で入手できます。本番では正確なバージョンタグを利用してください。`1.2`や`latest`のようなローリングタグも存在します。
+公開済みのmulti-platform(`linux/amd64`、`linux/arm64`)イメージは`xhighhongo41/nichellm-proxy`で入手できます。本番では正確なバージョンタグを利用してください。`1.3`や`latest`のようなローリングタグも存在します。
 
 ```bash
-docker pull xhighhongo41/nichellm-proxy:1.2.2
+docker pull xhighhongo41/nichellm-proxy:1.3.0
 ```
 
 イメージにはAPIキーも設定JSONも含まれません。Composeファイルと同じ場所に、設定で使うAPIキー変数を記した`.env`ファイルを作成し([APIキー管理](#apiキー管理)を参照)、作業ディレクトリに`config.json`([設定](#設定)の完全な例から始めてください)と次のComposeファイルを配置します。
@@ -62,7 +62,7 @@ docker pull xhighhongo41/nichellm-proxy:1.2.2
 ```yaml
 services:
   nichellm-proxy:
-    image: xhighhongo41/nichellm-proxy:1.2.2
+    image: xhighhongo41/nichellm-proxy:1.3.0
     ports:
       - "127.0.0.1:8000:8000"
     environment:
@@ -138,11 +138,11 @@ response = client.chat.completions.create(
 print(response.choices[0].message.content)
 ```
 
-`Authorization`ヘッダーは省略できます。プロキシは常にそれを設定済みの上流Bearer APIキーで置き換えるため([APIキー管理](#apiキー管理)を参照)、クライアント側に本物のキーは不要です。画像モードでも`POST /v1/images/generations`を同じように利用できます。
+`Authorization`ヘッダーは省略できます。プロキシは常にそれを設定済みの上流Bearer APIキーで置き換えるため([APIキー管理](#apiキー管理)を参照)、クライアント側に本物のキーは不要です。`featherless`モードでは逆に、各クライアントが本物のfeatherless.aiキーを`Authorization`で送る必要があり、プロキシはそれを変更せず転送します。画像モードでも`POST /v1/images/generations`を同じように利用できます。
 
 ### 既存環境のアップデート
 
-v1.2.2では設定JSONの形式は変更されていません。既存の`config.json`はそのまま動作します。
+v1.3.0では設定JSONの形式は変更されていません。既存の`config.json`はそのまま動作します。v1.3.0は`featherless`モードを追加します([モードとフィーチャー](#モードとフィーチャー)を参照)。
 
 ソースからDocker Composeで実行している場合:
 
@@ -151,7 +151,7 @@ git pull
 docker compose up --build -d
 ```
 
-公開Docker Hubイメージで実行している場合: Composeファイル内のイメージタグを更新し(例: `xhighhongo41/nichellm-proxy:1.2.2`)、次を実行します。
+公開Docker Hubイメージで実行している場合: Composeファイル内のイメージタグを更新し(例: `xhighhongo41/nichellm-proxy:1.3.0`)、次を実行します。
 
 ```bash
 docker compose pull
@@ -169,11 +169,12 @@ uv sync
 
 ### 設定ファイル
 
-プロキシは、必須の設定JSONファイルを1つ読み込みます。3つのテンプレートがリポジトリに含まれます(公開イメージだけで実行する場合も、GitHubから取得してください)。
+プロキシは、必須の設定JSONファイルを1つ読み込みます。4つのテンプレートがリポジトリに含まれます(公開イメージだけで実行する場合も、GitHubから取得してください)。
 
 - `config.example.json` — `passthrough`モード(下記)
 - `config.grok-image.example.json` — `grok-image`モード
 - `config.gemini-image.example.json` — `gemini-image`モード
+- `config.featherless.example.json` — `featherless`モード
 
 コンテナ内での既定パスは`/app/config/config.json`です。上記のDocker Compose手順では、ローカルの`config.json`をそこへマウントします。ホスト実行では`NICHELLM_CONFIG_PATH`でパスを指定してください。
 
@@ -223,15 +224,15 @@ uv sync
 |キー|型・制約|既定値|
 |---|---|---|
 |`listener.port`|1〜65535の整数(必須)|—|
-|`listener.mode`|`passthrough`、`grok-image`、または`gemini-image`(必須)|—|
+|`listener.mode`|`passthrough`、`grok-image`、`gemini-image`、または`featherless`(必須)|—|
 |`upstream.base_url`|query・fragmentを含まないhttp/https URL(必須)|—|
-|`upstream.api_key_env`|空でない文字列。APIキーを保持する環境変数の名前(必須)|—|
+|`upstream.api_key_env`|空でない文字列。APIキーを保持する環境変数の名前(`featherless`モード以外は必須。`featherless`モードでは指定自体がエラー)|—|
 |`timeouts.connect_seconds`|正の数|10.0|
 |`timeouts.read_seconds`|正の数|120.0|
 
 `timeouts`オブジェクト自体も省略でき、既定値のあるキーはすべて省略できます。`listener.port`を変更する場合は、Composeの`ports`マッピングのコンテナ側ポートも`listener.port`と一致するように更新してください(例: `"127.0.0.1:8001:8001"`)。同梱`docker-compose.yml`のhealthcheckはコンテナの8000番ポートを確認する固定値のため、`listener.port`が8000の間だけ正確に機能します。
 
-モード固有のキー(`listener.grok_image`、`listener.gemini_image`)と、任意の`listener.features`のloggingフィーチャーは[モードとフィーチャー](#モードとフィーチャー)で説明します。モード固有オブジェクト内の未知キー、不正な値、モード不一致の設定は、起動時の設定エラーとして拒否されます。モード固有オブジェクトとloggingフィーチャーの設定以外の場所の未知キーは黙って無視されるため、設定が効いていないように見える場合はキーのスペル(例: `timeouts`を`timouts`と書く)を確認してください。`grok-image`と`gemini-image`の完全な例は`config.grok-image.example.json`と`config.gemini-image.example.json`にあります。
+モード固有のキー(`listener.grok_image`、`listener.gemini_image`、`listener.featherless`)と、任意の`listener.features`のloggingフィーチャーは[モードとフィーチャー](#モードとフィーチャー)で説明します。モード固有オブジェクト内の未知キー、不正な値、モード不一致の設定は、起動時の設定エラーとして拒否されます。モード固有オブジェクトとloggingフィーチャーの設定以外の場所の未知キーは黙って無視されるため、設定が効いていないように見える場合はキーのスペル(例: `timeouts`を`timouts`と書く)を確認してください。各モードの完全な例は`config.grok-image.example.json`、`config.gemini-image.example.json`、`config.featherless.example.json`にあります。
 
 ### 環境変数
 
@@ -243,7 +244,7 @@ uv sync
 |`NICHELLM_CONFIG_PATH`|いいえ|設定JSONへのパス。既定値は`/app/config/config.json`です。ホスト実行時は指定してください。|
 |`NICHELLM_LANGUAGE`|いいえ|プロキシ自身が生成するメッセージの言語。`en`(既定)または`ja`を指定します。`ja-JP`のような値は`ja`として扱い、未対応値は英語へフォールバックします。|
 
-3つのAPIキー変数は、リポジトリ同梱の設定例で`api_key_env`が参照している名前です。変数名自体は設定可能で、`api_key_env`が指名した変数はプロキシの起動前に設定しておく必要があります。
+3つのAPIキー変数は、リポジトリ同梱の設定例で`api_key_env`が参照している名前です。変数名自体は設定可能で、`api_key_env`が指名した変数はプロキシの起動前に設定しておく必要があります。`featherless`モードはAPIキー環境変数を一切読みません。各クライアントが自分の`Authorization`ヘッダーを送り、プロキシはそれをfeatherless.aiへ変更せず中継します。
 
 プロキシが読み込む環境変数はこれだけです。環境変数で設定JSONを丸ごと置換・上書きすることはできません。
 
@@ -257,7 +258,7 @@ export UPSTREAM_API_KEY='your-upstream-api-key'
 
 Docker Composeでは、Composeファイルと同じ場所に置いた`.env`ファイルが実際の値の置き場所として便利です。Composeが自動的に読み込みます。リポジトリの`.env.example`には、上の表のうちAPIキーと言語の環境変数が並んでいます。
 
-プロキシはクライアントが送った`Authorization`ヘッダーを設定した上流Bearer APIキーに置き換え、受信した値は転送しないため、クライアント側に本物の上流キーは不要です。
+プロキシはクライアントが送った`Authorization`ヘッダーを設定した上流Bearer APIキーに置き換え、受信した値は転送しないため、クライアント側に本物の上流キーは不要です。`featherless`モードではこの置き換えを行いません。プロキシは上流APIキーを保持せず、`api_key_env`を定義してはならず、各クライアントの`Authorization`ヘッダーを変更せず中継します。このため、すべてのクライアントが自分のfeatherless.ai APIキーを必要とします([featherlessモード](#featherlessモード)を参照)。
 
 ### タイムアウト
 
@@ -267,13 +268,14 @@ Docker Composeでは、Composeファイルと同じ場所に置いた`.env`フ�
 
 ## モードとフィーチャー
 
-`listener.mode`には`passthrough`、`grok-image`、または`gemini-image`を指定できます。`GET /health`はどのモードでも動作します。上流エラーはステータスと本文をそのまま透過し、上流への接続・読取失敗は`passthrough`と同じ502/504応答を返します。
+`listener.mode`には`passthrough`、`grok-image`、`gemini-image`、または`featherless`を指定できます。`GET /health`はどのモードでも動作します。上流エラーはステータスと本文をそのまま透過し、上流への接続・読取失敗は`passthrough`と同じ502/504応答を返します。
 
 |モード・フィーチャー|機能|設定|
 |---|---|---|
 |`passthrough`|OpenAI互換APIを無変換で中継|`upstream`|
 |`grok-image`|Grok(xAI)の画像生成をOpenAI互換インターフェースとして提供|`listener.grok_image`|
 |`gemini-image`|Google Geminiの画像生成をOpenAI互換インターフェースとして提供|`listener.gemini_image`|
+|`featherless`|featherless.aiをモデルホワイトリストとAPIキーごとの同時リクエストキューイングで中継|`listener.featherless`|
 |`logging`フィーチャー|構造化プロトコルログ。全モードで利用可能|`listener.features`|
 
 ### passthroughモード
@@ -438,6 +440,96 @@ OpenAI互換層での画像生成に使えるモデルは、Googleによるホ�
 }
 ```
 
+### featherlessモード
+
+`featherless`は、[featherless.ai](https://featherless.ai)をモデルホワイトリストと同時リクエストキューイング付きのOpenAI互換インターフェースとして提供します。プロキシはAPIキーを保持しません。各クライアントの`Authorization`ヘッダーをfeatherless.aiへ変更せず中継するため、すべてのクライアントが自分のfeatherless.ai APIキーを必要とします。
+
+|経路|メソッド|動作|
+|---|---|---|
+|`/v1/models`|GET|ホワイトリスト内のモデルのみを、プロキシのモデル情報キャッシュから組み立てて返却。クエリパラメータは無視|
+|`/v1/models/{model_id}`|GET|ホワイトリスト内のモデル詳細をキャッシュから返却。それ以外はOpenAI互換エラーでHTTP 404|
+|`model`フィールドを持つJSONリクエスト|POST等|ホワイトリスト照合と同時接続ゲートを経て、クライアントの`Authorization`付きで転送|
+|その他のリクエスト|任意|ゲートなしで転送|
+
+`model`がホワイトリストにないリクエストは、上流へ送る前にHTTP 404で拒否します。非JSONリクエストと`model`フィールドのないJSONリクエストはゲートなしで転送し、上流が通常どおり拒否します。`Authorization`ヘッダーのないリクエストはゲートを通さずにそのまま転送します。
+
+#### 同時接続制御
+
+featherless.aiは同時リクエストをunitで計量します。処理中の各リクエストはモデルサイズに応じたコストを消費します(小規模モデルは1、中規模は2、大規模は4。正確な値は各モデルの`concurrency_cost`から取得)。プロキシはモデル情報キャッシュから各リクエストのモデルのコストを解決し、次をします。
+
+- 起動時に`GET /v1/plan`からプランの同時接続上限を取得。`concurrency_limit`設定があればそれを優先。
+- `GET /account/concurrency`スナップショットを定期的に取得して実際の使用量を追跡。同じAPIキーでプロキシを経由しないリクエストの消費も反映。
+- プロキシ自身の予約をAPIキーごとに管理し、`max(ローカル予約, 上流使用量) + コスト`が上限を超えるリクエストは、APIキーごとのFIFOキューで待機。
+- 待機が`max_queue_wait_seconds`(既定60秒)を超えたら、OpenAI互換エラーでHTTP 429を応答。
+- 待機中のクライアント切断を検知したら、キュー枠と予約を解放。
+
+`logging`フィーチャーはこのモードでも`passthrough`と同様に機能します。
+
+#### `listener.featherless`設定
+
+`listener.featherless`は`featherless`モードでは必須で、他のモードでは指定するとエラーになります。
+
+- `model_whitelist`: 必須。モデルid文字列の空でないリスト(例: `moonshotai/Kimi-K2.6`)。完全一致のみ。`GET /v1/models`に表示され、リクエストで受け付けられるのはこれらのモデルだけです。
+- `concurrency_limit`: 任意の正の整数。`GET /v1/plan`から取得するプラン上限を上書きします。省略時はプランに自動追従します。
+- `max_queue_wait_seconds`: 任意の正の数。既定値は60。
+- `cache_ttl_seconds`: 任意の正の数。既定値は300。モデル情報(利用可否を含む)をこの時間キャッシュします。取得時に利用不可能だったモデルは、次の更新で再試行されます。
+
+#### 新しいモデルの追加
+
+featherless.aiは数万のモデルを提供しており、ホワイトリストは手動で管理します。モデルを追加するには、featherless.aiのサイトか次のコマンドでモデルidを確認してください。
+
+```bash
+curl -s 'https://api.featherless.ai/v1/models?per_page=100' | jq -r '.data[].id' | head -50
+```
+
+(認証不要。一覧は`page`でページネーションされます。)確認したidを`model_whitelist`に追記し、プロキシを再起動してください。モデル情報は`cache_ttl_seconds`ごとに更新されます。
+
+完全な`featherless`設定例:
+
+```json
+{
+  "listener": {
+    "port": 8000,
+    "mode": "featherless",
+    "featherless": {
+      "model_whitelist": [
+        "moonshotai/Kimi-K2.6",
+        "Qwen/Qwen3-Coder-480B"
+      ],
+      "max_queue_wait_seconds": 60,
+      "cache_ttl_seconds": 300
+    },
+    "features": [
+      {
+        "name": "logging",
+        "config": {
+          "stdout": true,
+          "file": {
+            "enabled": true,
+            "path": "/var/log/nichellm/proxy.jsonl",
+            "max_bytes": 10485760,
+            "backup_count": 5
+          },
+          "capture": {"bodies": false, "max_body_bytes": 1048576},
+          "redaction": {
+            "additional_header_names": [],
+            "additional_query_parameter_names": [],
+            "additional_json_field_names": []
+          }
+        }
+      }
+    ]
+  },
+  "upstream": {
+    "base_url": "https://api.featherless.ai"
+  },
+  "timeouts": {
+    "connect_seconds": 10,
+    "read_seconds": 120
+  }
+}
+```
+
 ### loggingフィーチャー
 
 `listener.features`を省略すればプロトコルログなしで動作します。指定する場合は`logging`を1件だけ指定できます。プロキシは重複・未知feature・不正なlogging設定を起動時に拒否します。
@@ -452,7 +544,7 @@ OpenAI互換層での画像生成に使えるモデルは、Googleによるホ�
 
 ### サポートしないこと
 
-上記の中継動作に加えて、プロキシは`grok-image`と`gemini-image`の変換以外のプロトコル変換・プロバイダーアダプターを提供しません。また、webhook受信・署名検証、Administration API操作、レート制限、プロキシ自身の認証、TLS終端、複数listenerも提供しません。
+上記の中継動作に加えて、プロキシは`grok-image`と`gemini-image`の変換以外のプロトコル変換・プロバイダーアダプターを提供しません。また、webhook受信・署名検証、Administration API操作、レート制限、プロキシ自身の認証、TLS終端、複数listenerも提供しません。`featherless`モードのAPIキー管理はクライアント側のみです。プロキシ側でのキー管理やホワイトリスト管理APIは提供しません。
 
 ## セキュリティ
 
@@ -472,11 +564,10 @@ OpenAI互換層での画像生成に使えるモデルは、Googleによるホ�
 
 ## 変更履歴
 
-### v1.2.2（2026-09-10）
+### v1.3.0（2026-09-12）
 
-- 全リリース履歴を`CHANGELOG.md`へ抽出し、READMEの変更履歴節を最新エントリとリンクのみに圧縮しました。
-- GitHubリポジトリのtopicsとhomepageを設定し、Docker Hubリポジトリのfull descriptionを設定しました。
-- サポートしないこと節から、廃止済みの未実装モードへの言及を除去しました。
+- `featherless`リスナーモードを追加しました。featherless.aiをモデルホワイトリスト付きのOpenAI互換インターフェースとして提供します。`GET /v1/models`は設定した`model_whitelist`のみを表示し、他のエンドポイントはクライアントの`Authorization`ヘッダー付きで中継します(プロキシはAPIキーを保持しません)。
+- `featherless`モードにAPIキーごとの同時リクエストゲートを追加しました。プラン上限を`GET /v1/plan`から取得し(`concurrency_limit`で上書き可)、実際の使用量を`GET /account/concurrency`スナップショットで追跡し、上限を超えるリクエストは`max_queue_wait_seconds`(既定60秒)までFIFOキューで待機してからHTTP 429を応答します。
 
 全履歴は英語の[CHANGELOG.md](CHANGELOG.md)を参照してください。
 

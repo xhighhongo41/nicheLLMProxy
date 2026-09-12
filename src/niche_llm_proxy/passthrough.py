@@ -69,6 +69,12 @@ def prepare_request_headers(headers: Headers, api_key: str) -> HeaderPairs:
     return forwarded_headers
 
 
+def prepare_request_headers_preserve_auth(headers: Headers) -> HeaderPairs:
+    """Keep end-to-end request headers including the client's credentials."""
+
+    return _forwardable_headers(headers.raw, {b"host"})
+
+
 def prepare_response_headers(headers: httpx.Headers) -> HeaderPairs:
     """Keep ordered upstream end-to-end response headers, including duplicates."""
     return _forwardable_headers(headers.raw)

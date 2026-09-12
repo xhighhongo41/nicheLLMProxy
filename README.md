@@ -1,6 +1,6 @@
 # nicheLLM Proxy
 
-nicheLLM Proxy relays HTTP requests and responses between an OpenAI-compatible client and an upstream LLM provider. The `passthrough` mode forwards without transformation, the `grok-image` mode added in v1.1 presents Grok (xAI) image generation through an OpenAI-compatible interface, and the `gemini-image` mode added in v1.2 presents Google Gemini image generation through an OpenAI-compatible interface. All modes support one listener in a trusted network and opt-in structured protocol logging.
+nicheLLM Proxy relays HTTP requests and responses between an OpenAI-compatible client and an upstream LLM provider. The `passthrough` mode forwards without transformation, the `grok-image` mode added in v1.1 presents Grok (xAI) image generation through an OpenAI-compatible interface, the `gemini-image` mode added in v1.2 presents Google Gemini image generation through an OpenAI-compatible interface, and the `featherless` mode added in v1.3 presents featherless.ai through a model whitelist and per-key concurrent-request queueing. All modes support one listener in a trusted network and opt-in structured protocol logging.
 
 [日本語版 README](README_ja.md)
 
@@ -12,7 +12,7 @@ nicheLLM Proxy relays HTTP requests and responses between an OpenAI-compatible c
 - Python 3.11 or later with [uv](https://docs.astral.sh/uv/) for host execution.
 - Git, to clone and update the repository.
 
-An upstream LLM provider account with an API key is required in every setup. See [Configuration](#configuration) for the configuration JSON file.
+An upstream LLM provider account with an API key is required in every setup. See [Configuration](#configuration) for the configuration JSON file. In `featherless` mode the proxy itself holds no API key: each client sends its own `Authorization` header (see [featherless mode](#featherless-mode)).
 
 ### Run with Docker Compose (from source)
 
@@ -28,7 +28,7 @@ export NICHELLM_LANGUAGE=ja  # optional; English is the default
 docker compose up --build -d
 ```
 
-The bundled `docker-compose.yml` requires `UPSTREAM_API_KEY` to be set even when `api_key_env` names a different variable (for example `XAI_API_KEY`); set any value for it, or adjust the `environment` entries to your configuration. The Compose file includes a healthcheck that probes `GET /health` every 30 seconds; `docker compose ps` shows the service as `healthy` once it is ready. Check the proxy:
+The bundled `docker-compose.yml` requires `UPSTREAM_API_KEY` to be set even when `api_key_env` names a different variable (for example `XAI_API_KEY`); set any value for it, or adjust the `environment` entries to your configuration. In `featherless` mode no API key variable is needed at all; set any value for `UPSTREAM_API_KEY`, or adjust the `environment` entries. The Compose file includes a healthcheck that probes `GET /health` every 30 seconds; `docker compose ps` shows the service as `healthy` once it is ready. Check the proxy:
 
 ```bash
 curl http://127.0.0.1:8000/health
@@ -51,10 +51,10 @@ To delete retained logs deliberately, stop the service and remove the named volu
 
 ### Run with the published Docker Hub image
 
-Published multi-platform (`linux/amd64`, `linux/arm64`) images are available at `xhighhongo41/nichellm-proxy`. Use an exact version tag in production; rolling tags such as `1.2` and `latest` also exist.
+Published multi-platform (`linux/amd64`, `linux/arm64`) images are available at `xhighhongo41/nichellm-proxy`. Use an exact version tag in production; rolling tags such as `1.3` and `latest` also exist.
 
 ```bash
-docker pull xhighhongo41/nichellm-proxy:1.2.2
+docker pull xhighhongo41/nichellm-proxy:1.3.0
 ```
 
 The image contains no API key or configuration JSON. Create a `.env` file next to the Compose file with the API key variables your configuration uses (see [API key management](#api-key-management)), and put a `config.json` (start from the full example in [Configuration](#configuration)) and this Compose file in a working directory:
@@ -62,7 +62,7 @@ The image contains no API key or configuration JSON. Create a `.env` file next t
 ```yaml
 services:
   nichellm-proxy:
-    image: xhighhongo41/nichellm-proxy:1.2.2
+    image: xhighhongo41/nichellm-proxy:1.3.0
     ports:
       - "127.0.0.1:8000:8000"
     environment:
@@ -138,11 +138,11 @@ response = client.chat.completions.create(
 print(response.choices[0].message.content)
 ```
 
-The `Authorization` header is optional: the proxy always replaces it with the configured upstream Bearer API key (see [API key management](#api-key-management)), so clients never hold the real key. The image modes accept `POST /v1/images/generations` the same way.
+The `Authorization` header is optional: the proxy always replaces it with the configured upstream Bearer API key (see [API key management](#api-key-management)), so clients never hold the real key. In `featherless` mode the opposite holds: each client must send its real featherless.ai key in `Authorization`, and the proxy relays it unchanged. The image modes accept `POST /v1/images/generations` the same way.
 
 ### Updating an existing installation
 
-The configuration JSON format is unchanged in v1.2.2; existing `config.json` files keep working.
+The configuration JSON format is unchanged in v1.3.0; existing `config.json` files keep working. v1.3.0 adds the `featherless` mode; see [Modes and features](#modes-and-features).
 
 Docker Compose from source:
 
@@ -151,7 +151,7 @@ git pull
 docker compose up --build -d
 ```
 
-Published Docker Hub image: update the image tag in your Compose file (for example `xhighhongo41/nichellm-proxy:1.2.2`), then:
+Published Docker Hub image: update the image tag in your Compose file (for example `xhighhongo41/nichellm-proxy:1.3.0`), then:
 
 ```bash
 docker compose pull
@@ -171,11 +171,12 @@ and start it again.
 
 ### Configuration file
 
-The proxy reads one mandatory configuration JSON file. Three templates are included in the repository (fetch them from GitHub when you run only the published image):
+The proxy reads one mandatory configuration JSON file. Four templates are included in the repository (fetch them from GitHub when you run only the published image):
 
 - `config.example.json` — `passthrough` mode (shown below)
 - `config.grok-image.example.json` — `grok-image` mode
 - `config.gemini-image.example.json` — `gemini-image` mode
+- `config.featherless.example.json` — `featherless` mode
 
 Inside a container, the default path is `/app/config/config.json`; the Docker Compose setups above mount your local `config.json` there. For host execution, set the path with `NICHELLM_CONFIG_PATH`.
 
@@ -225,15 +226,15 @@ Common keys:
 |Key|Type / constraint|Default|
 |---|---|---|
 |`listener.port`|integer 1–65535 (required)|—|
-|`listener.mode`|`passthrough`, `grok-image`, or `gemini-image` (required)|—|
+|`listener.mode`|`passthrough`, `grok-image`, `gemini-image`, or `featherless` (required)|—|
 |`upstream.base_url`|http/https URL without query or fragment (required)|—|
-|`upstream.api_key_env`|non-empty string; the name of the environment variable holding the API key (required)|—|
+|`upstream.api_key_env`|non-empty string; the name of the environment variable holding the API key (required except in `featherless` mode, where it must be omitted)|—|
 |`timeouts.connect_seconds`|positive number|10.0|
 |`timeouts.read_seconds`|positive number|120.0|
 
 The `timeouts` object itself is optional, and every key with a default value can be omitted. If you change `listener.port`, also update the Compose `ports` mapping so the container-side port matches `listener.port` (for example `"127.0.0.1:8001:8001"`); the healthcheck in the bundled `docker-compose.yml` probes container port 8000, so it stays accurate only while `listener.port` is 8000.
 
-Mode-specific keys (`listener.grok_image`, `listener.gemini_image`) and the optional `listener.features` logging feature are described in [Modes and features](#modes-and-features). Unknown keys inside the mode-specific objects, invalid values, and mode-mismatched settings are rejected as startup configuration errors. Outside the mode-specific objects and the logging feature settings, unknown keys are silently ignored — check the key spelling (for example `timouts` instead of `timeouts`) if a setting seems to have no effect. Complete `grok-image` and `gemini-image` examples are available as `config.grok-image.example.json` and `config.gemini-image.example.json`.
+Mode-specific keys (`listener.grok_image`, `listener.gemini_image`, `listener.featherless`) and the optional `listener.features` logging feature are described in [Modes and features](#modes-and-features). Unknown keys inside the mode-specific objects, invalid values, and mode-mismatched settings are rejected as startup configuration errors. Outside the mode-specific objects and the logging feature settings, unknown keys are silently ignored — check the key spelling (for example `timouts` instead of `timeouts`) if a setting seems to have no effect. Complete mode examples are available as `config.grok-image.example.json`, `config.gemini-image.example.json`, and `config.featherless.example.json`.
 
 ### Environment variables
 
@@ -245,7 +246,7 @@ Mode-specific keys (`listener.grok_image`, `listener.gemini_image`) and the opti
 |`NICHELLM_CONFIG_PATH`|No|Path to the configuration JSON. The default is `/app/config/config.json`; set it for host execution.|
 |`NICHELLM_LANGUAGE`|No|Language for proxy-generated messages: `en` (default) or `ja`. Values such as `ja-JP` are treated as `ja`; unsupported values fall back to English.|
 
-The three API key variables are the names referenced by `api_key_env` in the bundled configuration examples. The variable name itself is configurable: whatever `api_key_env` names must be set before the proxy starts.
+The three API key variables are the names referenced by `api_key_env` in the bundled configuration examples. The variable name itself is configurable: whatever `api_key_env` names must be set before the proxy starts. The `featherless` mode reads no API key environment variable: each client sends its own `Authorization` header, which the proxy relays to featherless.ai unchanged.
 
 These are the only environment variables the proxy reads. The configuration JSON cannot be replaced or overridden wholesale through environment variables.
 
@@ -259,7 +260,7 @@ export UPSTREAM_API_KEY='your-upstream-api-key'
 
 For Docker Compose, a `.env` file next to the Compose file is a convenient place for the real values; Compose reads it automatically. `.env.example` in the repository lists the API key and language variables from the table above.
 
-The proxy replaces a client-supplied `Authorization` header with the configured upstream Bearer API key and does not forward the received value, so clients never need the real upstream key.
+The proxy replaces a client-supplied `Authorization` header with the configured upstream Bearer API key and does not forward the received value, so clients never need the real upstream key. In `featherless` mode this replacement does not happen: the proxy holds no upstream API key, must not define `api_key_env`, and relays each client's `Authorization` header unchanged, so every client needs its own featherless.ai API key (see [featherless mode](#featherless-mode)).
 
 ### Timeouts
 
@@ -269,13 +270,14 @@ For background responses, batches, and fine-tuning jobs, create the job and poll
 
 ## Modes and features
 
-`listener.mode` accepts `passthrough`, `grok-image`, or `gemini-image`. `GET /health` works in every mode. Upstream errors are passed through with their status and body unchanged, and upstream connection and read failures return the same 502/504 responses as `passthrough`.
+`listener.mode` accepts `passthrough`, `grok-image`, `gemini-image`, or `featherless`. `GET /health` works in every mode. Upstream errors are passed through with their status and body unchanged, and upstream connection and read failures return the same 502/504 responses as `passthrough`.
 
 |Mode / feature|Function|Settings|
 |---|---|---|
 |`passthrough`|Relays OpenAI-compatible APIs without transformation|`upstream`|
 |`grok-image`|Presents Grok (xAI) image generation through an OpenAI-compatible interface|`listener.grok_image`|
 |`gemini-image`|Presents Google Gemini image generation through an OpenAI-compatible interface|`listener.gemini_image`|
+|`featherless`|Relays featherless.ai with a model whitelist and per-key concurrent-request queueing|`listener.featherless`|
 |`logging` feature|Structured protocol logging, available in every mode|`listener.features`|
 
 ### passthrough mode
@@ -440,6 +442,96 @@ Complete `gemini-image` example:
 }
 ```
 
+### featherless mode
+
+`featherless` presents [featherless.ai](https://featherless.ai) through an OpenAI-compatible interface with a model whitelist and concurrent-request queueing. The proxy holds no API key: each client's `Authorization` header is relayed to featherless.ai unchanged, and every client needs its own featherless.ai API key.
+
+|Path|Method|Behavior|
+|---|---|---|
+|`/v1/models`|GET|Whitelisted models only, assembled from the proxy's model info cache; query parameters are ignored|
+|`/v1/models/{model_id}`|GET|Whitelisted model detail from the cache; HTTP 404 with an OpenAI-compatible error otherwise|
+|JSON requests with a `model` field|POST and others|Whitelist check, concurrency gate, then relayed with the client's `Authorization`|
+|Other requests|any|Relayed without the gate|
+
+Requests whose `model` is not in the whitelist are rejected with HTTP 404 before reaching the upstream. Non-JSON requests and JSON without a `model` field are relayed without the gate and rejected by the upstream as usual. Requests without an `Authorization` header bypass the gate entirely.
+
+#### Concurrency control
+
+featherless.ai meters concurrent requests in units: each in-flight request consumes a model-size-dependent cost (small models cost 1, mid-size 2, large 4 units; the exact value comes from each model's `concurrency_cost`). The proxy resolves the cost of each request's model from the model info cache and:
+
+- obtains the plan's concurrency limit from `GET /v1/plan` at startup, or uses `concurrency_limit` when set;
+- tracks actual usage with periodic `GET /account/concurrency` snapshots, which also covers requests made outside this proxy with the same API key;
+- tracks its own reservations per API key, and queues a request when `max(local reservations, upstream usage) + cost` would exceed the limit — per API key, first-in-first-out;
+- answers HTTP 429 with an OpenAI-compatible error when a queued request waits longer than `max_queue_wait_seconds` (default 60 seconds);
+- releases the queue slot and reservation when the waiting client disconnects.
+
+The `logging` feature works in this mode as in `passthrough`.
+
+#### `listener.featherless` settings
+
+`listener.featherless` is required in `featherless` mode and rejected in the other modes:
+
+- `model_whitelist`: required. A non-empty list of exact model id strings (for example `moonshotai/Kimi-K2.6`). Only these models appear in `GET /v1/models` and are accepted in requests.
+- `concurrency_limit`: optional positive integer. Overrides the plan limit fetched from `GET /v1/plan`. Omit it to track the plan automatically.
+- `max_queue_wait_seconds`: optional positive number, default 60.
+- `cache_ttl_seconds`: optional positive number, default 300. Model info (including availability) is cached for this long; an unavailable model is retried on the next refresh.
+
+#### Adding new models
+
+featherless.ai offers tens of thousands of models and the whitelist is maintained by hand. To add a model, confirm its id on the featherless.ai site or with:
+
+```bash
+curl -s 'https://api.featherless.ai/v1/models?per_page=100' | jq -r '.data[].id' | head -50
+```
+
+(no authentication needed; the list is paginated with `page`), then add the id to `model_whitelist` and restart the proxy. Model info refreshes every `cache_ttl_seconds`.
+
+Complete `featherless` example:
+
+```json
+{
+  "listener": {
+    "port": 8000,
+    "mode": "featherless",
+    "featherless": {
+      "model_whitelist": [
+        "moonshotai/Kimi-K2.6",
+        "Qwen/Qwen3-Coder-480B"
+      ],
+      "max_queue_wait_seconds": 60,
+      "cache_ttl_seconds": 300
+    },
+    "features": [
+      {
+        "name": "logging",
+        "config": {
+          "stdout": true,
+          "file": {
+            "enabled": true,
+            "path": "/var/log/nichellm/proxy.jsonl",
+            "max_bytes": 10485760,
+            "backup_count": 5
+          },
+          "capture": {"bodies": false, "max_body_bytes": 1048576},
+          "redaction": {
+            "additional_header_names": [],
+            "additional_query_parameter_names": [],
+            "additional_json_field_names": []
+          }
+        }
+      }
+    ]
+  },
+  "upstream": {
+    "base_url": "https://api.featherless.ai"
+  },
+  "timeouts": {
+    "connect_seconds": 10,
+    "read_seconds": 120
+  }
+}
+```
+
 ### logging feature
 
 `listener.features` may be omitted to run without protocol logging, or may contain one `logging` feature. The proxy rejects duplicate or unknown features and invalid logging settings at startup.
@@ -454,7 +546,7 @@ Enabling body capture intentionally stores user prompts and model output. Use it
 
 ### Not supported
 
-Besides the relay behavior described above, the proxy provides no protocol conversion or provider adapters other than the `grok-image` and `gemini-image` conversions. It also does not provide webhook receiving or signature verification, Administration API operations, rate limiting, proxy authentication, TLS termination, or multiple listeners.
+Besides the relay behavior described above, the proxy provides no protocol conversion or provider adapters other than the `grok-image` and `gemini-image` conversions. It also does not provide webhook receiving or signature verification, Administration API operations, rate limiting, proxy authentication, TLS termination, or multiple listeners. The `featherless` mode manages API keys only on the client side; proxy-side key management and a whitelist administration API are not provided.
 
 ## Security
 
@@ -474,11 +566,10 @@ Error messages the proxy generates are localized with `NICHELLM_LANGUAGE` (Engli
 
 ## Changelog
 
-### v1.2.2 (2026-09-10)
+### v1.3.0 (2026-09-12)
 
-- Extracted the full release history into `CHANGELOG.md` and condensed the README changelog to the latest entry with a link to it.
-- Added GitHub repository topics and a homepage link, and set the Docker Hub repository full description.
-- Removed an obsolete unbuilt mode from the Not supported list.
+- Added the `featherless` listener mode, which presents featherless.ai through an OpenAI-compatible interface with a model whitelist: `GET /v1/models` lists only the configured `model_whitelist`, and other endpoints are relayed with the client's `Authorization` header (the proxy holds no API key).
+- Added per-API-key concurrent-request gating for `featherless` mode: the plan limit is fetched from `GET /v1/plan` (overridable with `concurrency_limit`), actual usage is tracked through `GET /account/concurrency` snapshots, and requests that would exceed the limit are queued first-in-first-out up to `max_queue_wait_seconds` (default 60) before answering HTTP 429.
 
 Full history: [CHANGELOG.md](CHANGELOG.md)
 

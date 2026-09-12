@@ -34,8 +34,8 @@ def test_japanese_catalog_translates_config_error(monkeypatch: pytest.MonkeyPatc
 
     assert get_language() == "ja"
     assert (
-        translate("listener.mode must be 'passthrough', 'grok-image' or 'gemini-image'.")
-        == "listener.mode は 'passthrough'、'grok-image' または 'gemini-image' である必要があります。"
+        translate("listener.mode must be 'passthrough', 'grok-image', 'gemini-image' or 'featherless'.")
+        == "listener.mode は 'passthrough'、'grok-image'、'gemini-image' または 'featherless' である必要があります。"
     )
 
 
@@ -44,6 +44,36 @@ def test_unsupported_language_uses_english_message(monkeypatch: pytest.MonkeyPat
     monkeypatch.setenv("NICHELLM_LANGUAGE", "fr")
 
     assert translate("The upstream provider timed out.") == "The upstream provider timed out."
+
+
+def test_japanese_catalog_translates_featherless_runtime_messages(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The Japanese catalog covers the featherless mode runtime messages."""
+    monkeypatch.setenv("NICHELLM_LANGUAGE", "ja")
+
+    assert (
+        translate("The requested model is not in the whitelist of 'featherless' mode.")
+        == "要求されたモデルは 'featherless' モードのホワイトリストに含まれていません。"
+    )
+    assert (
+        translate("The requested model is not available in 'featherless' mode.")
+        == "要求されたモデルは 'featherless' モードでは利用できません。"
+    )
+    assert (
+        translate(
+            "The request was rejected because the wait for upstream "
+            "concurrency capacity exceeded the limit, in 'featherless' mode."
+        )
+        == "上流の同時接続キャパシティの待機が上限を超えたため、要求は拒否されました('featherless'モード)。"
+    )
+    assert (
+        translate(
+            "The client disconnected while waiting for upstream "
+            "concurrency capacity in 'featherless' mode."
+        )
+        == "上流の同時接続キャパシティの待機中にクライアントが切断されたため、要求を中止しました('featherless'モード)。"
+    )
 
 
 def test_main_localizes_configuration_error_prefix(
