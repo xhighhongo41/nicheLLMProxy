@@ -64,7 +64,10 @@ def _detail_body(
 
 
 def _stream_json_response(
-    payload: dict[str, Any], request: httpx.Request
+    payload: dict[str, Any],
+    request: httpx.Request,
+    *,
+    status_code: int = 200,
 ) -> httpx.Response:
     """Build a JSON response that stays streamable for ``stream=True`` sends."""
 
@@ -72,7 +75,7 @@ def _stream_json_response(
         yield json.dumps(payload).encode("utf-8")
 
     return httpx.Response(
-        200,
+        status_code,
         headers={"content-type": "application/json"},
         content=iterate(),
         request=request,
@@ -107,7 +110,18 @@ class _FakeFeatherlessUpstream:
             )
         )
         if self.fail:
-            return httpx.Response(503, request=request)
+            return _stream_json_response(
+                {
+                    "error": {
+                        "message": "insufficient capacity",
+                        "type": "server_error",
+                        "param": None,
+                        "code": None,
+                    }
+                },
+                request,
+                status_code=503,
+            )
         path = request.url.path
         if path == "/v1/plan":
             return _stream_json_response(
@@ -1238,6 +1252,28 @@ class TestFeatherlessApp:
         assert response.status_code == 200
         assert response.json()["model"] == KIMI
         assert upstream.completions == [(KIMI, AUTH1)]
+
+    @pytest.mark.anyio
+    async def test_upstream_error_passes_through_and_releases(
+        self, make_app: Any
+    ) -> None:
+        """Upstream HTTP errors keep their status and release the reservation."""
+
+        upstream = _FakeFeatherlessUpstream(details={KIMI: _detail_body(KIMI)})
+        app = make_app(upstream, concurrency_limit=8)
+        upstream.fail = True
+
+        async with self._client(app) as client:
+            response = await client.post(
+                "/v1/chat/completions",
+                json={"model": KIMI, "messages": []},
+                headers={"Authorization": AUTH1},
+            )
+
+        assert response.status_code == 503
+        runtime = app.state.featherless_runtime
+        gate = runtime.gates.gate_for(AUTH1)
+        assert gate.reserved == 0
 
     @pytest.mark.anyio
     async def test_chat_completions_rejects_model_outside_whitelist(
