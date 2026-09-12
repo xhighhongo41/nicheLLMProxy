@@ -60,6 +60,13 @@ def test_japanese_catalog_translates_featherless_runtime_messages(
         translate("The requested model is not available in 'featherless' mode.")
         == "要求されたモデルは 'featherless' モードでは利用できません。"
     )
+    assert (
+        translate(
+            "The request was rejected because the wait for upstream "
+            "concurrency capacity exceeded the limit, in 'featherless' mode."
+        )
+        == "上流の同時接続キャパシティの待機が上限を超えたため、要求は拒否されました('featherless'モード)。"
+    )
 
 
 def test_main_localizes_configuration_error_prefix(
