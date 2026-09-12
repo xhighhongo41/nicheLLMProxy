@@ -86,10 +86,14 @@ class GeminiImageConfig:
 
 @dataclass(frozen=True)
 class TimeoutConfig:
-    """Timeout configuration for upstream communication."""
+    """Timeout configuration for upstream communication.
+
+    ``read_seconds`` may be ``None`` to wait for upstream responses without a
+    read timeout. ``connect_seconds`` must always be a positive number.
+    """
 
     connect_seconds: float = DEFAULT_CONNECT_TIMEOUT_SECONDS
-    read_seconds: float = DEFAULT_READ_TIMEOUT_SECONDS
+    read_seconds: float | None = DEFAULT_READ_TIMEOUT_SECONDS
 
 
 @dataclass(frozen=True)
@@ -241,7 +245,7 @@ def load_config(
             "connect_seconds",
             DEFAULT_CONNECT_TIMEOUT_SECONDS,
         ),
-        read_seconds=_positive_number(
+        read_seconds=_positive_number_or_none(
             timeout_data,
             "read_seconds",
             DEFAULT_READ_TIMEOUT_SECONDS,
@@ -760,3 +764,18 @@ def _positive_number(
             translate("timeouts.{key} must be a positive number.", key=key)
         )
     return float(value)
+
+
+def _positive_number_or_none(
+    config: Mapping[str, Any],
+    key: str,
+    default: float,
+) -> float | None:
+    """Validate and return an optional positive numeric setting that may be null.
+
+    A null value disables the timeout instead of falling back to the default.
+    """
+
+    if key in config and config[key] is None:
+        return None
+    return _positive_number(config, key, default)

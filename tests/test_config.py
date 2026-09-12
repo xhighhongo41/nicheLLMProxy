@@ -945,3 +945,46 @@ def test_load_config_rejects_invalid_featherless_number(
                 }
             )
         )
+
+
+def test_load_config_accepts_null_read_seconds(
+    monkeypatch: pytest.MonkeyPatch,
+    write_config: Callable[[dict[str, object] | None], Path],
+) -> None:
+    """Allow null read_seconds to disable the upstream read timeout."""
+    monkeypatch.setenv("UPSTREAM_API_KEY", "secret-value")
+
+    config = load_config(
+        write_config({"timeouts": {"connect_seconds": 1, "read_seconds": None}})
+    )
+
+    assert config.timeouts.connect_seconds == 1.0
+    assert config.timeouts.read_seconds is None
+
+
+@pytest.mark.parametrize("value", [0, -1, -2.5, "120", True, [], {}])
+def test_load_config_rejects_invalid_read_seconds(
+    monkeypatch: pytest.MonkeyPatch,
+    write_config: Callable[[dict[str, object] | None], Path],
+    value: object,
+) -> None:
+    """Reject read_seconds values that are neither null nor positive numbers."""
+    monkeypatch.setenv("UPSTREAM_API_KEY", "secret-value")
+
+    with pytest.raises(ConfigError, match="read_seconds"):
+        load_config(
+            write_config({"timeouts": {"connect_seconds": 1, "read_seconds": value}})
+        )
+
+
+def test_load_config_rejects_null_connect_seconds(
+    monkeypatch: pytest.MonkeyPatch,
+    write_config: Callable[[dict[str, object] | None], Path],
+) -> None:
+    """Reject null connect_seconds; only the read timeout may be disabled."""
+    monkeypatch.setenv("UPSTREAM_API_KEY", "secret-value")
+
+    with pytest.raises(ConfigError, match="connect_seconds"):
+        load_config(
+            write_config({"timeouts": {"connect_seconds": None, "read_seconds": 2}})
+        )
