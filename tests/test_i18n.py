@@ -46,6 +46,22 @@ def test_unsupported_language_uses_english_message(monkeypatch: pytest.MonkeyPat
     assert translate("The upstream provider timed out.") == "The upstream provider timed out."
 
 
+def test_japanese_catalog_translates_featherless_runtime_messages(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The Japanese catalog covers the featherless mode runtime messages."""
+    monkeypatch.setenv("NICHELLM_LANGUAGE", "ja")
+
+    assert (
+        translate("The requested model is not in the whitelist of 'featherless' mode.")
+        == "要求されたモデルは 'featherless' モードのホワイトリストに含まれていません。"
+    )
+    assert (
+        translate("The requested model is not available in 'featherless' mode.")
+        == "要求されたモデルは 'featherless' モードでは利用できません。"
+    )
+
+
 def test_main_localizes_configuration_error_prefix(
     capsys: pytest.CaptureFixture[str],
     monkeypatch: pytest.MonkeyPatch,

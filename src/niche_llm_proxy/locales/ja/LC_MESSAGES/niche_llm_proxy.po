@@ -72,6 +72,12 @@ msgstr "listener.featherless.{key} は0より大きい整数である必要が�
 msgid "listener.featherless.{key} must be a positive number."
 msgstr "listener.featherless.{key} は0より大きい数値である必要があります。"
 
+msgid "The requested model is not in the whitelist of 'featherless' mode."
+msgstr "要求されたモデルは 'featherless' モードのホワイトリストに含まれていません。"
+
+msgid "The requested model is not available in 'featherless' mode."
+msgstr "要求されたモデルは 'featherless' モードでは利用できません。"
+
 msgid "listener.features must be an array."
 msgstr "listener.features は配列である必要があります。"
 
