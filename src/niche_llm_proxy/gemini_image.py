@@ -96,10 +96,17 @@ def transform_request_body(body: bytes, settings: GeminiImageConfig | None) -> b
 
     n = data.get("n")
     if n is not None:
-        if isinstance(n, bool) or not isinstance(n, int) or not 1 <= n <= 10:
+        if isinstance(n, bool) or not isinstance(n, int) or n < 1:
             raise TransformError(
                 status_code=400,
-                message=translate("'n' must be an integer between 1 and 10."),
+                message=translate("'n' must be an integer equal to 1."),
+            )
+        if n > 1:
+            raise TransformError(
+                status_code=400,
+                message=translate(
+                    "'n' greater than 1 is not supported in 'gemini-image' mode."
+                ),
             )
         output["n"] = n
 

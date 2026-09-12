@@ -13,7 +13,6 @@ from urllib.parse import urlparse
 
 from niche_llm_proxy.i18n import translate
 
-
 DEFAULT_CONFIG_PATH = Path("/app/config/config.json")
 """Default configuration file path when no environment override is set."""
 
@@ -52,10 +51,10 @@ class ListenerConfig:
 
     port: int
     mode: str
-    grok_image: "GrokImageConfig | None" = None
-    gemini_image: "GeminiImageConfig | None" = None
-    featherless: "FeatherlessConfig | None" = None
-    features: tuple["LoggingFeatureConfig", ...] = ()
+    grok_image: GrokImageConfig | None = None
+    gemini_image: GeminiImageConfig | None = None
+    featherless: FeatherlessConfig | None = None
+    features: tuple[LoggingFeatureConfig, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -87,10 +86,14 @@ class GeminiImageConfig:
 
 @dataclass(frozen=True)
 class TimeoutConfig:
-    """Timeout configuration for upstream communication."""
+    """Timeout configuration for upstream communication.
+
+    ``read_seconds`` may be ``None`` to wait for upstream responses without a
+    read timeout. ``connect_seconds`` must always be a positive number.
+    """
 
     connect_seconds: float = DEFAULT_CONNECT_TIMEOUT_SECONDS
-    read_seconds: float = DEFAULT_READ_TIMEOUT_SECONDS
+    read_seconds: float | None = DEFAULT_READ_TIMEOUT_SECONDS
 
 
 @dataclass(frozen=True)
@@ -242,7 +245,7 @@ def load_config(
             "connect_seconds",
             DEFAULT_CONNECT_TIMEOUT_SECONDS,
         ),
-        read_seconds=_positive_number(
+        read_seconds=_positive_number_or_none(
             timeout_data,
             "read_seconds",
             DEFAULT_READ_TIMEOUT_SECONDS,
@@ -644,7 +647,7 @@ def _base_url(upstream: Mapping[str, Any]) -> str:
     try:
         parsed = urlparse(value)
         # Invalid ports and IPv6 literals are detected when accessing this attribute.
-        parsed.port
+        parsed.port  # noqa: B018 - intentional attribute access for validation
     except ValueError as error:
         raise ConfigError(
             translate("upstream.base_url must be a valid HTTP(S) URL.")
@@ -761,3 +764,18 @@ def _positive_number(
             translate("timeouts.{key} must be a positive number.", key=key)
         )
     return float(value)
+
+
+def _positive_number_or_none(
+    config: Mapping[str, Any],
+    key: str,
+    default: float,
+) -> float | None:
+    """Validate and return an optional positive numeric setting that may be null.
+
+    A null value disables the timeout instead of falling back to the default.
+    """
+
+    if key in config and config[key] is None:
+        return None
+    return _positive_number(config, key, default)

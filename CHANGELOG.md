@@ -1,5 +1,12 @@
 # Changelog
 
+### v1.3.1 (2026-09-12)
+
+- Changed the `featherless` mode concurrency queue from strict first-in-first-out to skip-queueing: a waiting request that does not fit the remaining budget no longer blocks later, smaller requests, while every queued request still answers HTTP 429 after `max_queue_wait_seconds`.
+- Allowed `timeouts.read_seconds` to be set to `null`, which disables the upstream read timeout; `connect_seconds` remains a required positive number.
+- Restricted `n` in `gemini-image` mode to omitted or 1: Gemini returns a single image per request, so larger values are now rejected with HTTP 400 instead of silently returning one image.
+- Documented the `upstream_request_sent` protocol-logging event emitted by the image modes.
+
 ### v1.3.0 (2026-09-12)
 
 - Added the `featherless` listener mode, which presents featherless.ai through an OpenAI-compatible interface with a model whitelist: `GET /v1/models` lists only the configured `model_whitelist`, and other endpoints are relayed with the client's `Authorization` header (the proxy holds no API key).

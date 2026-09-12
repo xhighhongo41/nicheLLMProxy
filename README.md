@@ -54,7 +54,7 @@ To delete retained logs deliberately, stop the service and remove the named volu
 Published multi-platform (`linux/amd64`, `linux/arm64`) images are available at `xhighhongo41/nichellm-proxy`. Use an exact version tag in production; rolling tags such as `1.3` and `latest` also exist.
 
 ```bash
-docker pull xhighhongo41/nichellm-proxy:1.3.0
+docker pull xhighhongo41/nichellm-proxy:1.3.1
 ```
 
 The image contains no API key or configuration JSON. Create a `.env` file next to the Compose file with the API key variables your configuration uses (see [API key management](#api-key-management)), and put a `config.json` (start from the full example in [Configuration](#configuration)) and this Compose file in a working directory:
@@ -62,7 +62,7 @@ The image contains no API key or configuration JSON. Create a `.env` file next t
 ```yaml
 services:
   nichellm-proxy:
-    image: xhighhongo41/nichellm-proxy:1.3.0
+    image: xhighhongo41/nichellm-proxy:1.3.1
     ports:
       - "127.0.0.1:8000:8000"
     environment:
@@ -142,7 +142,7 @@ The `Authorization` header is optional: the proxy always replaces it with the co
 
 ### Updating an existing installation
 
-The configuration JSON format is unchanged in v1.3.0; existing `config.json` files keep working. v1.3.0 adds the `featherless` mode; see [Modes and features](#modes-and-features).
+The configuration JSON format is unchanged in v1.3.1; existing `config.json` files keep working. v1.3.1 allows `timeouts.read_seconds: null` to disable the upstream read timeout; see [Timeouts](#timeouts).
 
 Docker Compose from source:
 
@@ -151,7 +151,7 @@ git pull
 docker compose up --build -d
 ```
 
-Published Docker Hub image: update the image tag in your Compose file (for example `xhighhongo41/nichellm-proxy:1.3.0`), then:
+Published Docker Hub image: update the image tag in your Compose file (for example `xhighhongo41/nichellm-proxy:1.3.1`), then:
 
 ```bash
 docker compose pull
@@ -230,7 +230,7 @@ Common keys:
 |`upstream.base_url`|http/https URL without query or fragment (required)|—|
 |`upstream.api_key_env`|non-empty string; the name of the environment variable holding the API key (required except in `featherless` mode, where it must be omitted)|—|
 |`timeouts.connect_seconds`|positive number|10.0|
-|`timeouts.read_seconds`|positive number|120.0|
+|`timeouts.read_seconds`|positive number or `null`|120.0|
 
 The `timeouts` object itself is optional, and every key with a default value can be omitted. If you change `listener.port`, also update the Compose `ports` mapping so the container-side port matches `listener.port` (for example `"127.0.0.1:8001:8001"`); the healthcheck in the bundled `docker-compose.yml` probes container port 8000, so it stays accurate only while `listener.port` is 8000.
 
@@ -264,7 +264,7 @@ The proxy replaces a client-supplied `Authorization` header with the configured 
 
 ### Timeouts
 
-`connect_seconds` limits the time to establish an upstream connection. `read_seconds` limits the wait for the next byte from the upstream; it is not a limit on the total duration of a response that continues to deliver data. Keep the configured timeout for HTTP SSE and ordinary HTTP responses.
+`connect_seconds` limits the time to establish an upstream connection. `read_seconds` limits the wait for the next byte from the upstream; it is not a limit on the total duration of a response that continues to deliver data. Keep the configured timeout for HTTP SSE and ordinary HTTP responses. Set `read_seconds` to `null` to disable the read timeout and wait for the upstream without a limit; `connect_seconds` must always be a positive number.
 
 For background responses, batches, and fine-tuning jobs, create the job and poll its status from the client instead of holding one proxy connection indefinitely. Realtime and Responses WebSocket workloads require a separate bidirectional transport design and are not supported.
 
@@ -390,7 +390,7 @@ Complete `grok-image` example:
 |Any other path|Any|HTTP 404 with a localized error|
 |An unsupported method on the paths above|—|HTTP 405 with a localized error|
 
-In `gemini-image` mode, the proxy adds `response_format: "b64_json"` when the request omits it; validates that `n` is an integer between 1 and 10; rejects `response_format` values other than `b64_json`, and other invalid requests, with HTTP 400 before they reach the upstream; passes other keys such as `size` and `quality` through unchanged; and adds the configured `aspect_ratio` default only when the request has neither `size` nor `aspect_ratio`. Image data always comes back as base64-encoded JPEG. The `logging` feature works in this mode as in `passthrough`.
+In `gemini-image` mode, the proxy adds `response_format: "b64_json"` when the request omits it; validates that `n` is omitted or equal to 1, and rejects any other `n` value with HTTP 400 because Gemini returns a single image per request; rejects `response_format` values other than `b64_json`, and other invalid requests, with HTTP 400 before they reach the upstream; passes other keys such as `size` and `quality` through unchanged; and adds the configured `aspect_ratio` default only when the request has neither `size` nor `aspect_ratio`. Image data always comes back as base64-encoded JPEG. The `logging` feature works in this mode as in `passthrough`.
 
 Model availability for image generation through the OpenAI compatibility layer is restricted by Google to a whitelist. As of 2026-09-09, `gemini-3-pro-image-preview` is the only model verified to work, and `gemini-2.5-flash-image` is documented but reaches its end of life on 2026-10-02. The GA model names `gemini-3-pro-image` and `gemini-3.1-flash-image` currently return HTTP 404 through this layer and cannot be used.
 
@@ -461,7 +461,7 @@ featherless.ai meters concurrent requests in units: each in-flight request consu
 
 - obtains the plan's concurrency limit from `GET /v1/plan` at startup, or uses `concurrency_limit` when set;
 - tracks actual usage with periodic `GET /account/concurrency` snapshots, which also covers requests made outside this proxy with the same API key;
-- tracks its own reservations per API key, and queues a request when `max(local reservations, upstream usage) + cost` would exceed the limit — per API key, first-in-first-out;
+- tracks its own reservations per API key, and queues a request when `max(local reservations, upstream usage) + cost` would exceed the limit — per API key. Waiting requests that fit the remaining budget are admitted in arrival order; a request that does not fit is skipped for the moment and later, smaller requests may pass it, until the skipped request either fits or times out;
 - answers HTTP 429 with an OpenAI-compatible error when a queued request waits longer than `max_queue_wait_seconds` (default 60 seconds);
 - releases the queue slot and reservation when the waiting client disconnects.
 
@@ -541,6 +541,8 @@ Complete `featherless` example:
 - `capture.bodies` is **false by default**. When true, the proxy captures at most `max_body_bytes` (default 1 MiB, maximum 10 MiB) of textual JSON, text, or SSE request and response bodies. It never delays or reconstructs the forwarded stream.
 - Multipart and binary bodies are not stored. Their byte count, SHA-256 digest, and omission reason are recorded instead. Truncated textual bodies are marked in the record.
 - `Authorization`, proxy authorization, cookies, API-key headers, and names containing `token`, `secret`, `password`, or `api_key` are redacted. Add project-specific names to the three `redaction` arrays. JSON redaction cannot reliably find secrets or personal data embedded in free-form prompts or tool output.
+
+The `grok-image` and `gemini-image` modes additionally emit an `upstream_request_sent` event — with the byte count and SHA-256 digest of the transformed request — at the moment the request is sent upstream.
 
 Enabling body capture intentionally stores user prompts and model output. Use it only in a trusted environment, restrict access to the log volume, and set an operational retention/deletion policy.
 

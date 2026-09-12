@@ -261,13 +261,26 @@ class TestTransformRequestBody:
         "n",
         [
             pytest.param(0, id="zero"),
-            pytest.param(11, id="too-large"),
+            pytest.param(-1, id="negative"),
             pytest.param(True, id="bool"),
-            pytest.param("2", id="string"),
+            pytest.param("1", id="string"),
         ],
     )
     def test_invalid_n_raises_transform_error(self, n: object) -> None:
-        """Reject an n value outside 1-10 or of the wrong type."""
+        """Reject an n value that is not the integer 1."""
+        body = _body(
+            {"prompt": "a cat", "model": "gemini-3-pro-image-preview", "n": n}
+        )
+
+        with pytest.raises(TransformError) as error:
+            transform_request_body(body, None)
+
+        assert error.value.status_code == 400
+        assert error.value.message == translate("'n' must be an integer equal to 1.")
+
+    @pytest.mark.parametrize("n", [2, 4, 11])
+    def test_n_greater_than_one_raises_transform_error(self, n: int) -> None:
+        """Reject n values greater than 1 with an explicit unsupported error."""
         body = _body(
             {"prompt": "a cat", "model": "gemini-3-pro-image-preview", "n": n}
         )
@@ -277,18 +290,26 @@ class TestTransformRequestBody:
 
         assert error.value.status_code == 400
         assert error.value.message == translate(
-            "'n' must be an integer between 1 and 10."
+            "'n' greater than 1 is not supported in 'gemini-image' mode."
         )
 
-    def test_valid_n_passes_through(self) -> None:
-        """Forward a valid n value unchanged."""
+    def test_n_of_one_passes_through(self) -> None:
+        """Forward an explicit n of 1 unchanged."""
         body = _body(
-            {"prompt": "a cat", "model": "gemini-3-pro-image-preview", "n": 4}
+            {"prompt": "a cat", "model": "gemini-3-pro-image-preview", "n": 1}
         )
 
         result = transform_request_body(body, None)
 
-        assert _loads(result)["n"] == 4
+        assert _loads(result)["n"] == 1
+
+    def test_omitted_n_is_not_sent(self) -> None:
+        """Do not add an n field when the client omits it."""
+        body = _body({"prompt": "a cat", "model": "gemini-3-pro-image-preview"})
+
+        result = transform_request_body(body, None)
+
+        assert "n" not in _loads(result)
 
     @pytest.mark.parametrize(
         "response_format",

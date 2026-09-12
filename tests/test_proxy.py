@@ -13,8 +13,8 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 
 from niche_llm_proxy.app import create_app
-from niche_llm_proxy.config import ProxyConfig
-from niche_llm_proxy.passthrough import stream_response
+from niche_llm_proxy.config import ProxyConfig, load_config
+from niche_llm_proxy.passthrough import create_http_client, stream_response
 
 
 class _TrackingStream(httpx.AsyncByteStream):
@@ -86,6 +86,24 @@ async def test_health_does_not_contact_upstream(proxy_config: ProxyConfig) -> No
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
     assert not contacted
+
+
+def test_create_http_client_allows_unlimited_read_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+    write_config: Callable[[dict[str, object] | None], Path],
+) -> None:
+    """Create an upstream client without a read timeout when read_seconds is null."""
+    monkeypatch.setenv("UPSTREAM_API_KEY", "secret-value")
+    config = load_config(
+        write_config({"timeouts": {"connect_seconds": 1, "read_seconds": None}})
+    )
+
+    client = create_http_client(config)
+
+    assert client.timeout.connect == 1.0
+    assert client.timeout.read is None
+    assert client.timeout.write is None
+    assert client.timeout.pool is None
 
 
 @pytest.mark.anyio
