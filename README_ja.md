@@ -54,7 +54,7 @@ docker compose exec nichellm-proxy sh -c 'ls -lh /var/log/nichellm'
 公開済みのmulti-platform(`linux/amd64`、`linux/arm64`)イメージは`xhighhongo41/nichellm-proxy`で入手できます。本番では正確なバージョンタグを利用してください。`1.3`や`latest`のようなローリングタグも存在します。
 
 ```bash
-docker pull xhighhongo41/nichellm-proxy:1.3.0
+docker pull xhighhongo41/nichellm-proxy:1.3.1
 ```
 
 イメージにはAPIキーも設定JSONも含まれません。Composeファイルと同じ場所に、設定で使うAPIキー変数を記した`.env`ファイルを作成し([APIキー管理](#apiキー管理)を参照)、作業ディレクトリに`config.json`([設定](#設定)の完全な例から始めてください)と次のComposeファイルを配置します。
@@ -62,7 +62,7 @@ docker pull xhighhongo41/nichellm-proxy:1.3.0
 ```yaml
 services:
   nichellm-proxy:
-    image: xhighhongo41/nichellm-proxy:1.3.0
+    image: xhighhongo41/nichellm-proxy:1.3.1
     ports:
       - "127.0.0.1:8000:8000"
     environment:
@@ -142,7 +142,7 @@ print(response.choices[0].message.content)
 
 ### 既存環境のアップデート
 
-v1.3.0では設定JSONの形式は変更されていません。既存の`config.json`はそのまま動作します。v1.3.0は`featherless`モードを追加します([モードとフィーチャー](#モードとフィーチャー)を参照)。
+v1.3.1では設定JSONの形式は変更されていません。既存の`config.json`はそのまま動作します。v1.3.1では`timeouts.read_seconds`に`null`を指定して上流読み取りタイムアウトを無効化できます([タイムアウト](#タイムアウト)を参照)。
 
 ソースからDocker Composeで実行している場合:
 
@@ -151,7 +151,7 @@ git pull
 docker compose up --build -d
 ```
 
-公開Docker Hubイメージで実行している場合: Composeファイル内のイメージタグを更新し(例: `xhighhongo41/nichellm-proxy:1.3.0`)、次を実行します。
+公開Docker Hubイメージで実行している場合: Composeファイル内のイメージタグを更新し(例: `xhighhongo41/nichellm-proxy:1.3.1`)、次を実行します。
 
 ```bash
 docker compose pull

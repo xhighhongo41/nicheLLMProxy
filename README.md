@@ -54,7 +54,7 @@ To delete retained logs deliberately, stop the service and remove the named volu
 Published multi-platform (`linux/amd64`, `linux/arm64`) images are available at `xhighhongo41/nichellm-proxy`. Use an exact version tag in production; rolling tags such as `1.3` and `latest` also exist.
 
 ```bash
-docker pull xhighhongo41/nichellm-proxy:1.3.0
+docker pull xhighhongo41/nichellm-proxy:1.3.1
 ```
 
 The image contains no API key or configuration JSON. Create a `.env` file next to the Compose file with the API key variables your configuration uses (see [API key management](#api-key-management)), and put a `config.json` (start from the full example in [Configuration](#configuration)) and this Compose file in a working directory:
@@ -62,7 +62,7 @@ The image contains no API key or configuration JSON. Create a `.env` file next t
 ```yaml
 services:
   nichellm-proxy:
-    image: xhighhongo41/nichellm-proxy:1.3.0
+    image: xhighhongo41/nichellm-proxy:1.3.1
     ports:
       - "127.0.0.1:8000:8000"
     environment:
@@ -142,7 +142,7 @@ The `Authorization` header is optional: the proxy always replaces it with the co
 
 ### Updating an existing installation
 
-The configuration JSON format is unchanged in v1.3.0; existing `config.json` files keep working. v1.3.0 adds the `featherless` mode; see [Modes and features](#modes-and-features).
+The configuration JSON format is unchanged in v1.3.1; existing `config.json` files keep working. v1.3.1 allows `timeouts.read_seconds: null` to disable the upstream read timeout; see [Timeouts](#timeouts).
 
 Docker Compose from source:
 
@@ -151,7 +151,7 @@ git pull
 docker compose up --build -d
 ```
 
-Published Docker Hub image: update the image tag in your Compose file (for example `xhighhongo41/nichellm-proxy:1.3.0`), then:
+Published Docker Hub image: update the image tag in your Compose file (for example `xhighhongo41/nichellm-proxy:1.3.1`), then:
 
 ```bash
 docker compose pull
