@@ -157,6 +157,12 @@ msgstr "既定モデルが設定されていない場合、'model' は必須で�
 msgid "'n' must be an integer between 1 and 10."
 msgstr "'n' は1から10までの整数である必要があります。"
 
+msgid "'n' must be an integer equal to 1."
+msgstr "'n' は1に等しい整数である必要があります。"
+
+msgid "'n' greater than 1 is not supported in 'gemini-image' mode."
+msgstr "'gemini-image' モードでは、1より大きい 'n' はサポートされていません。"
+
 msgid "'response_format' must be 'url' or 'b64_json'."
 msgstr "'response_format' は 'url' または 'b64_json' である必要があります。"
 
