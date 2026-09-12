@@ -10,16 +10,14 @@ import queue
 import sys
 import time
 import uuid
-from collections.abc import AsyncIterator, Mapping, Sequence
+from collections.abc import AsyncIterator, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from logging.handlers import QueueHandler, QueueListener, RotatingFileHandler
-from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qsl, urlencode
 
 from niche_llm_proxy.config import LoggingFeatureConfig
-
 
 _REDACTED = "[REDACTED]"
 _SENSITIVE_NAME_PARTS = ("token", "secret", "password", "api_key")
@@ -177,7 +175,7 @@ class LoggingRuntime:
         path: str,
         query: str,
         request_headers: Sequence[tuple[bytes, bytes]],
-    ) -> "ExchangeLog":
+    ) -> ExchangeLog:
         """Create and immediately announce a request-scoped protocol exchange."""
 
         exchange = ExchangeLog(
@@ -210,7 +208,7 @@ class LoggingRuntime:
             return
         try:
             self._logger.info(json.dumps(event, ensure_ascii=False, separators=(",", ":")))
-        except Exception:
+        except Exception:  # noqa: BLE001 - protocol logging must never break the proxy
             print("nicheLLM Proxy could not emit a protocol log record.", file=sys.stderr)
 
     def close(self) -> None:

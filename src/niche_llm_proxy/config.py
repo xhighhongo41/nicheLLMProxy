@@ -13,7 +13,6 @@ from urllib.parse import urlparse
 
 from niche_llm_proxy.i18n import translate
 
-
 DEFAULT_CONFIG_PATH = Path("/app/config/config.json")
 """Default configuration file path when no environment override is set."""
 
@@ -52,10 +51,10 @@ class ListenerConfig:
 
     port: int
     mode: str
-    grok_image: "GrokImageConfig | None" = None
-    gemini_image: "GeminiImageConfig | None" = None
-    featherless: "FeatherlessConfig | None" = None
-    features: tuple["LoggingFeatureConfig", ...] = ()
+    grok_image: GrokImageConfig | None = None
+    gemini_image: GeminiImageConfig | None = None
+    featherless: FeatherlessConfig | None = None
+    features: tuple[LoggingFeatureConfig, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -644,7 +643,7 @@ def _base_url(upstream: Mapping[str, Any]) -> str:
     try:
         parsed = urlparse(value)
         # Invalid ports and IPv6 literals are detected when accessing this attribute.
-        parsed.port
+        parsed.port  # noqa: B018 - intentional attribute access for validation
     except ValueError as error:
         raise ConfigError(
             translate("upstream.base_url must be a valid HTTP(S) URL.")

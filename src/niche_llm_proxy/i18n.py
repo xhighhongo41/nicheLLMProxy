@@ -9,7 +9,6 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-
 DEFAULT_LANGUAGE = "en"
 """Language used when no supported language is explicitly selected."""
 
