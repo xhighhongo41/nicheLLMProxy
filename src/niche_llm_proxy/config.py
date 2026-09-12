@@ -23,6 +23,12 @@ DEFAULT_CONNECT_TIMEOUT_SECONDS = 10.0
 DEFAULT_READ_TIMEOUT_SECONDS = 120.0
 """Default upstream read timeout in seconds."""
 
+DEFAULT_MAX_QUEUE_WAIT_SECONDS = 60.0
+"""Default featherless queue wait limit in seconds."""
+
+DEFAULT_FEATHERLESS_CACHE_TTL_SECONDS = 300.0
+"""Default featherless model info cache lifetime in seconds."""
+
 DEFAULT_LOG_MAX_BYTES = 10 * 1024 * 1024
 """Default maximum size of the active protocol log file."""
 
@@ -48,7 +54,18 @@ class ListenerConfig:
     mode: str
     grok_image: "GrokImageConfig | None" = None
     gemini_image: "GeminiImageConfig | None" = None
+    featherless: "FeatherlessConfig | None" = None
     features: tuple["LoggingFeatureConfig", ...] = ()
+
+
+@dataclass(frozen=True)
+class FeatherlessConfig:
+    """Mandatory featherless mode settings for model whitelisting and queueing."""
+
+    model_whitelist: tuple[str, ...]
+    concurrency_limit: int | None = None
+    max_queue_wait_seconds: float = DEFAULT_MAX_QUEUE_WAIT_SECONDS
+    cache_ttl_seconds: float = DEFAULT_FEATHERLESS_CACHE_TTL_SECONDS
 
 
 @dataclass(frozen=True)
@@ -186,23 +203,39 @@ def load_config(
         mode=mode,
         grok_image=_grok_image(listener_data, mode),
         gemini_image=_gemini_image(listener_data, mode),
+        featherless=_featherless(listener_data, mode),
         features=_features(listener_data),
     )
-    api_key_env = _non_empty_string(upstream_data, "api_key_env")
-    api_key = environment.get(api_key_env)
-    if not api_key:
-        raise ConfigError(
-            translate(
-                "Upstream API key environment variable '{api_key_env}' is not set.",
-                api_key_env=api_key_env,
+    if mode == "featherless":
+        # The featherless mode relays the client's own Authorization header and
+        # must not hold an upstream key.
+        if upstream_data.get("api_key_env") is not None:
+            raise ConfigError(
+                translate(
+                    "upstream.api_key_env is not used in 'featherless' mode. "
+                    "The proxy relays the client's Authorization header."
+                )
             )
+        upstream = UpstreamConfig(
+            base_url=_base_url(upstream_data),
+            api_key_env="",
+            api_key="",
         )
-
-    upstream = UpstreamConfig(
-        base_url=_base_url(upstream_data),
-        api_key_env=api_key_env,
-        api_key=api_key,
-    )
+    else:
+        api_key_env = _non_empty_string(upstream_data, "api_key_env")
+        api_key = environment.get(api_key_env)
+        if not api_key:
+            raise ConfigError(
+                translate(
+                    "Upstream API key environment variable '{api_key_env}' is not set.",
+                    api_key_env=api_key_env,
+                )
+            )
+        upstream = UpstreamConfig(
+            base_url=_base_url(upstream_data),
+            api_key_env=api_key_env,
+            api_key=api_key,
+        )
     timeouts = TimeoutConfig(
         connect_seconds=_positive_number(
             timeout_data,
@@ -274,10 +307,12 @@ def _mode(listener: Mapping[str, Any]) -> str:
         "passthrough",
         "grok-image",
         "gemini-image",
+        "featherless",
     }:
         raise ConfigError(
             translate(
-                "listener.mode must be 'passthrough', 'grok-image' or 'gemini-image'."
+                "listener.mode must be 'passthrough', 'grok-image', "
+                "'gemini-image' or 'featherless'."
             )
         )
     return mode
@@ -374,6 +409,119 @@ def _gemini_image_string(config: Mapping[str, Any], key: str) -> str | None:
             )
         )
     return value
+
+
+def _featherless(listener: Mapping[str, Any], mode: str) -> FeatherlessConfig | None:
+    """Validate the mandatory featherless settings for the featherless listener."""
+
+    if "featherless" not in listener:
+        return None
+    if mode != "featherless":
+        raise ConfigError(
+            translate(
+                "listener.featherless is only supported in 'featherless' mode."
+            )
+        )
+    value = _required_object(listener, "featherless")
+    _reject_unknown_keys(
+        value,
+        {
+            "model_whitelist",
+            "concurrency_limit",
+            "max_queue_wait_seconds",
+            "cache_ttl_seconds",
+        },
+        "listener.featherless",
+    )
+    return FeatherlessConfig(
+        model_whitelist=_model_whitelist(value),
+        concurrency_limit=_featherless_integer(value, "concurrency_limit"),
+        max_queue_wait_seconds=_featherless_number(
+            value,
+            "max_queue_wait_seconds",
+            DEFAULT_MAX_QUEUE_WAIT_SECONDS,
+        ),
+        cache_ttl_seconds=_featherless_number(
+            value,
+            "cache_ttl_seconds",
+            DEFAULT_FEATHERLESS_CACHE_TTL_SECONDS,
+        ),
+    )
+
+
+def _model_whitelist(config: Mapping[str, Any]) -> tuple[str, ...]:
+    """Validate the mandatory non-empty whitelist without duplicate model ids."""
+
+    if "model_whitelist" not in config or config["model_whitelist"] is None:
+        raise ConfigError(
+            translate("listener.featherless.model_whitelist is required.")
+        )
+    value = config["model_whitelist"]
+    if not isinstance(value, list) or any(
+        not isinstance(item, str) or not item.strip() for item in value
+    ):
+        raise ConfigError(
+            translate(
+                "listener.featherless.model_whitelist must be an array of model id strings."
+            )
+        )
+    if not value:
+        raise ConfigError(
+            translate(
+                "listener.featherless.model_whitelist must contain at least one model id."
+            )
+        )
+    if len(set(value)) != len(value):
+        raise ConfigError(
+            translate(
+                "listener.featherless.model_whitelist must not contain duplicate model ids."
+            )
+        )
+    return tuple(value)
+
+
+def _featherless_integer(
+    config: Mapping[str, Any],
+    key: str,
+) -> int | None:
+    """Validate an optional positive integer featherless setting."""
+
+    if key not in config or config[key] is None:
+        return None
+    value = config[key]
+    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+        raise ConfigError(
+            translate(
+                "listener.featherless.{key} must be a positive integer.",
+                key=key,
+            )
+        )
+    return value
+
+
+def _featherless_number(
+    config: Mapping[str, Any],
+    key: str,
+    default: float,
+) -> float:
+    """Validate an optional positive numeric featherless setting."""
+
+    if key not in config or config[key] is None:
+        return default
+    value = config[key]
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, (int, float))
+        or not math.isfinite(value)
+        or value <= 0
+    ):
+        raise ConfigError(
+            translate(
+                "listener.featherless.{key} must be a positive number.",
+                key=key,
+            )
+        )
+    return float(value)
 
 
 def _features(listener: Mapping[str, Any]) -> tuple[LoggingFeatureConfig, ...]:

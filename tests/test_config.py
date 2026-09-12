@@ -578,6 +578,370 @@ def test_load_config_reports_supported_modes_in_mode_error(
 
     with pytest.raises(
         ConfigError,
-        match="must be 'passthrough', 'grok-image' or 'gemini-image'",
+        match="must be 'passthrough', 'grok-image', 'gemini-image' or 'featherless'",
     ):
         load_config(config_path)
+
+
+def test_load_config_accepts_featherless_mode(
+    write_config: Callable[[dict[str, object] | None], Path],
+) -> None:
+    """Accept featherless mode without an upstream API key environment variable."""
+    config = load_config(
+        write_config(
+            {
+                "listener": {
+                    "port": 8000,
+                    "mode": "featherless",
+                    "featherless": {"model_whitelist": ["moonshotai/Kimi-K2.6"]},
+                },
+                "upstream": {"base_url": "https://api.featherless.ai"},
+            }
+        )
+    )
+
+    assert config.listener.mode == "featherless"
+    featherless = config.listener.featherless
+    assert featherless is not None
+    assert featherless.model_whitelist == ("moonshotai/Kimi-K2.6",)
+    assert config.upstream.api_key == ""
+
+
+def test_load_config_reads_featherless_settings(
+    write_config: Callable[[dict[str, object] | None], Path],
+) -> None:
+    """Read explicit featherless settings into the configuration object."""
+    config = load_config(
+        write_config(
+            {
+                "listener": {
+                    "port": 8000,
+                    "mode": "featherless",
+                    "featherless": {
+                        "model_whitelist": [
+                            "moonshotai/Kimi-K2.6",
+                            "Qwen/Qwen3-Coder-480B",
+                        ],
+                        "concurrency_limit": 8,
+                        "max_queue_wait_seconds": 30.0,
+                        "cache_ttl_seconds": 600.0,
+                    },
+                },
+                "upstream": {"base_url": "https://api.featherless.ai"},
+            }
+        )
+    )
+
+    featherless = config.listener.featherless
+    assert featherless is not None
+    assert featherless.model_whitelist == (
+        "moonshotai/Kimi-K2.6",
+        "Qwen/Qwen3-Coder-480B",
+    )
+    assert featherless.concurrency_limit == 8
+    assert featherless.max_queue_wait_seconds == 30.0
+    assert featherless.cache_ttl_seconds == 600.0
+
+
+def test_load_config_applies_featherless_defaults(
+    write_config: Callable[[dict[str, object] | None], Path],
+) -> None:
+    """Apply documented featherless defaults for omitted optional settings."""
+    config = load_config(
+        write_config(
+            {
+                "listener": {
+                    "port": 8000,
+                    "mode": "featherless",
+                    "featherless": {"model_whitelist": ["moonshotai/Kimi-K2.6"]},
+                },
+                "upstream": {"base_url": "https://api.featherless.ai"},
+            }
+        )
+    )
+
+    featherless = config.listener.featherless
+    assert featherless is not None
+    assert featherless.concurrency_limit is None
+    assert featherless.max_queue_wait_seconds == 60.0
+    assert featherless.cache_ttl_seconds == 300.0
+
+
+def test_load_config_accepts_null_featherless_options(
+    write_config: Callable[[dict[str, object] | None], Path],
+) -> None:
+    """Treat explicit null featherless options as unset defaults."""
+    config = load_config(
+        write_config(
+            {
+                "listener": {
+                    "port": 8000,
+                    "mode": "featherless",
+                    "featherless": {
+                        "model_whitelist": ["moonshotai/Kimi-K2.6"],
+                        "concurrency_limit": None,
+                        "max_queue_wait_seconds": None,
+                        "cache_ttl_seconds": None,
+                    },
+                },
+                "upstream": {"base_url": "https://api.featherless.ai"},
+            }
+        )
+    )
+
+    featherless = config.listener.featherless
+    assert featherless is not None
+    assert featherless.concurrency_limit is None
+    assert featherless.max_queue_wait_seconds == 60.0
+    assert featherless.cache_ttl_seconds == 300.0
+
+
+def test_load_config_accepts_null_api_key_env_in_featherless_mode(
+    write_config: Callable[[dict[str, object] | None], Path],
+) -> None:
+    """Treat an explicit null upstream api_key_env as unset in featherless mode."""
+    config = load_config(
+        write_config(
+            {
+                "listener": {
+                    "port": 8000,
+                    "mode": "featherless",
+                    "featherless": {"model_whitelist": ["moonshotai/Kimi-K2.6"]},
+                },
+                "upstream": {
+                    "base_url": "https://api.featherless.ai",
+                    "api_key_env": None,
+                },
+            }
+        )
+    )
+
+    assert config.upstream.api_key == ""
+
+
+@pytest.mark.parametrize("mode", ["passthrough", "grok-image", "gemini-image"])
+def test_load_config_rejects_featherless_in_other_modes(
+    monkeypatch: pytest.MonkeyPatch,
+    write_config: Callable[[dict[str, object] | None], Path],
+    mode: str,
+) -> None:
+    """Reject a featherless object when the listener runs in another mode."""
+    monkeypatch.setenv("UPSTREAM_API_KEY", "secret-value")
+    with pytest.raises(ConfigError, match="only supported in 'featherless' mode"):
+        load_config(
+            write_config(
+                {
+                    "listener": {
+                        "port": 8000,
+                        "mode": mode,
+                        "featherless": {"model_whitelist": ["moonshotai/Kimi-K2.6"]},
+                    }
+                }
+            )
+        )
+
+
+@pytest.mark.parametrize(
+    "featherless",
+    ["not-an-object", [{"model_whitelist": ["moonshotai/Kimi-K2.6"]}], 123, True],
+)
+def test_load_config_rejects_non_object_featherless(
+    write_config: Callable[[dict[str, object] | None], Path],
+    featherless: object,
+) -> None:
+    """Reject a featherless value that is not an object."""
+    with pytest.raises(ConfigError, match="must be an object"):
+        load_config(
+            write_config(
+                {
+                    "listener": {
+                        "port": 8000,
+                        "mode": "featherless",
+                        "featherless": featherless,
+                    },
+                    "upstream": {"base_url": "https://api.featherless.ai"},
+                }
+            )
+        )
+
+
+def test_load_config_rejects_unknown_featherless_field(
+    write_config: Callable[[dict[str, object] | None], Path],
+) -> None:
+    """Reject an unknown field inside the featherless object."""
+    with pytest.raises(ConfigError, match="unknown"):
+        load_config(
+            write_config(
+                {
+                    "listener": {
+                        "port": 8000,
+                        "mode": "featherless",
+                        "featherless": {
+                            "model_whitelist": ["moonshotai/Kimi-K2.6"],
+                            "models_cache_ttl_seconds": 300,
+                        },
+                    },
+                    "upstream": {"base_url": "https://api.featherless.ai"},
+                }
+            )
+        )
+
+
+def test_load_config_rejects_api_key_env_in_featherless_mode(
+    write_config: Callable[[dict[str, object] | None], Path],
+) -> None:
+    """Reject an upstream API key environment variable in featherless mode."""
+    with pytest.raises(ConfigError, match="not used in 'featherless' mode"):
+        load_config(
+            write_config(
+                {
+                    "listener": {
+                        "port": 8000,
+                        "mode": "featherless",
+                        "featherless": {"model_whitelist": ["moonshotai/Kimi-K2.6"]},
+                    },
+                    "upstream": {
+                        "base_url": "https://api.featherless.ai",
+                        "api_key_env": "FEATHERLESS_API_KEY",
+                    },
+                }
+            )
+        )
+
+
+def test_load_config_rejects_featherless_missing_model_whitelist(
+    write_config: Callable[[dict[str, object] | None], Path],
+) -> None:
+    """Reject a featherless object without a model whitelist."""
+    with pytest.raises(ConfigError, match="required"):
+        load_config(
+            write_config(
+                {
+                    "listener": {
+                        "port": 8000,
+                        "mode": "featherless",
+                        "featherless": {},
+                    },
+                    "upstream": {"base_url": "https://api.featherless.ai"},
+                }
+            )
+        )
+
+
+def test_load_config_rejects_featherless_empty_model_whitelist(
+    write_config: Callable[[dict[str, object] | None], Path],
+) -> None:
+    """Reject an empty model whitelist."""
+    with pytest.raises(ConfigError, match="at least one"):
+        load_config(
+            write_config(
+                {
+                    "listener": {
+                        "port": 8000,
+                        "mode": "featherless",
+                        "featherless": {"model_whitelist": []},
+                    },
+                    "upstream": {"base_url": "https://api.featherless.ai"},
+                }
+            )
+        )
+
+
+@pytest.mark.parametrize("value", ["", "   ", 123, None, ["moonshotai/Kimi-K2.6"]])
+def test_load_config_rejects_featherless_invalid_model_whitelist_items(
+    write_config: Callable[[dict[str, object] | None], Path],
+    value: object,
+) -> None:
+    """Reject model whitelist items that are not non-empty strings."""
+    with pytest.raises(ConfigError, match="array of model id strings"):
+        load_config(
+            write_config(
+                {
+                    "listener": {
+                        "port": 8000,
+                        "mode": "featherless",
+                        "featherless": {
+                            "model_whitelist": ["moonshotai/Kimi-K2.6", value]
+                        },
+                    },
+                    "upstream": {"base_url": "https://api.featherless.ai"},
+                }
+            )
+        )
+
+
+def test_load_config_rejects_featherless_duplicate_model_whitelist(
+    write_config: Callable[[dict[str, object] | None], Path],
+) -> None:
+    """Reject duplicate model ids in the whitelist."""
+    with pytest.raises(ConfigError, match="duplicate"):
+        load_config(
+            write_config(
+                {
+                    "listener": {
+                        "port": 8000,
+                        "mode": "featherless",
+                        "featherless": {
+                            "model_whitelist": [
+                                "moonshotai/Kimi-K2.6",
+                                "moonshotai/Kimi-K2.6",
+                            ]
+                        },
+                    },
+                    "upstream": {"base_url": "https://api.featherless.ai"},
+                }
+            )
+        )
+
+
+@pytest.mark.parametrize(
+    "value",
+    [0, -1, 2.5, "8", True],
+)
+def test_load_config_rejects_featherless_invalid_concurrency_limit(
+    write_config: Callable[[dict[str, object] | None], Path],
+    value: object,
+) -> None:
+    """Reject a concurrency limit that is not a positive integer."""
+    with pytest.raises(ConfigError, match="positive integer"):
+        load_config(
+            write_config(
+                {
+                    "listener": {
+                        "port": 8000,
+                        "mode": "featherless",
+                        "featherless": {
+                            "model_whitelist": ["moonshotai/Kimi-K2.6"],
+                            "concurrency_limit": value,
+                        },
+                    },
+                    "upstream": {"base_url": "https://api.featherless.ai"},
+                }
+            )
+        )
+
+
+@pytest.mark.parametrize("key", ["max_queue_wait_seconds", "cache_ttl_seconds"])
+@pytest.mark.parametrize("value", [0, -1, "60", True, [], {}])
+def test_load_config_rejects_invalid_featherless_number(
+    write_config: Callable[[dict[str, object] | None], Path],
+    key: str,
+    value: object,
+) -> None:
+    """Reject non-positive or non-numeric featherless number settings."""
+    with pytest.raises(ConfigError, match="positive number"):
+        load_config(
+            write_config(
+                {
+                    "listener": {
+                        "port": 8000,
+                        "mode": "featherless",
+                        "featherless": {
+                            "model_whitelist": ["moonshotai/Kimi-K2.6"],
+                            key: value,
+                        },
+                    },
+                    "upstream": {"base_url": "https://api.featherless.ai"},
+                }
+            )
+        )

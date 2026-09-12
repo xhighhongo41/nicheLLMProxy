@@ -30,8 +30,8 @@ msgstr "設定項目 '{key}' はオブジェクトである必要があります
 msgid "listener.port must be an integer between 1 and 65535."
 msgstr "listener.port は1から65535までの整数である必要があります。"
 
-msgid "listener.mode must be 'passthrough', 'grok-image' or 'gemini-image'."
-msgstr "listener.mode は 'passthrough'、'grok-image' または 'gemini-image' である必要があります。"
+msgid "listener.mode must be 'passthrough', 'grok-image', 'gemini-image' or 'featherless'."
+msgstr "listener.mode は 'passthrough'、'grok-image'、'gemini-image' または 'featherless' である必要があります。"
 
 msgid "listener.grok_image is only supported in 'grok-image' mode."
 msgstr "listener.grok_image は 'grok-image' モードでのみ指定できます。"
@@ -47,6 +47,30 @@ msgstr "listener.gemini_image は 'gemini-image' モードでのみ指定でき�
 
 msgid "listener.gemini_image.{key} must be a non-empty string."
 msgstr "listener.gemini_image.{key} は空でない文字列である必要があります。"
+
+msgid "listener.featherless is only supported in 'featherless' mode."
+msgstr "listener.featherless は 'featherless' モードでのみ指定できます。"
+
+msgid "upstream.api_key_env is not used in 'featherless' mode. The proxy relays the client's Authorization header."
+msgstr "upstream.api_key_env は 'featherless' モードでは使用されません。プロキシはクライアントのAuthorizationヘッダーを転送します。"
+
+msgid "listener.featherless.model_whitelist is required."
+msgstr "listener.featherless.model_whitelist は必須です。"
+
+msgid "listener.featherless.model_whitelist must be an array of model id strings."
+msgstr "listener.featherless.model_whitelist はモデルID文字列の配列である必要があります。"
+
+msgid "listener.featherless.model_whitelist must contain at least one model id."
+msgstr "listener.featherless.model_whitelist には1件以上のモデルIDが必要です。"
+
+msgid "listener.featherless.model_whitelist must not contain duplicate model ids."
+msgstr "listener.featherless.model_whitelist に重複したモデルIDを指定できません。"
+
+msgid "listener.featherless.{key} must be a positive integer."
+msgstr "listener.featherless.{key} は0より大きい整数である必要があります。"
+
+msgid "listener.featherless.{key} must be a positive number."
+msgstr "listener.featherless.{key} は0より大きい数値である必要があります。"
 
 msgid "listener.features must be an array."
 msgstr "listener.features は配列である必要があります。"
