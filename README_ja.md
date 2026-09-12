@@ -228,7 +228,7 @@ uv sync
 |`upstream.base_url`|query・fragmentを含まないhttp/https URL(必須)|—|
 |`upstream.api_key_env`|空でない文字列。APIキーを保持する環境変数の名前(`featherless`モード以外は必須。`featherless`モードでは指定自体がエラー)|—|
 |`timeouts.connect_seconds`|正の数|10.0|
-|`timeouts.read_seconds`|正の数|120.0|
+|`timeouts.read_seconds`|正の数または`null`|120.0|
 
 `timeouts`オブジェクト自体も省略でき、既定値のあるキーはすべて省略できます。`listener.port`を変更する場合は、Composeの`ports`マッピングのコンテナ側ポートも`listener.port`と一致するように更新してください(例: `"127.0.0.1:8001:8001"`)。同梱`docker-compose.yml`のhealthcheckはコンテナの8000番ポートを確認する固定値のため、`listener.port`が8000の間だけ正確に機能します。
 
@@ -262,7 +262,7 @@ Docker Composeでは、Composeファイルと同じ場所に置いた`.env`フ�
 
 ### タイムアウト
 
-`connect_seconds`は上流への接続確立を待つ時間を制限します。`read_seconds`は上流から次のバイトを受け取るまでの待機時間を制限するものであり、継続してデータが届くレスポンス全体の所要時間を制限するものではありません。HTTP SSEと通常HTTPレスポンスでは、設定したタイムアウトを維持します。
+`connect_seconds`は上流への接続確立を待つ時間を制限します。`read_seconds`は上流から次のバイトを受け取るまでの待機時間を制限するものであり、継続してデータが届くレスポンス全体の所要時間を制限するものではありません。HTTP SSEと通常HTTPレスポンスでは、設定したタイムアウトを維持します。`read_seconds`に`null`を指定すると読み取りタイムアウトを無効化し、上流応答を無制限に待ちます。`connect_seconds`は常に正の数である必要があります。
 
 バックグラウンドレスポンス、batch、fine-tuning jobでは、1本のプロキシ接続を無期限に保持する代わりに、jobを作成した後にクライアントからステータスをポーリングしてください。RealtimeとResponses WebSocketのワークロードには、双方向通信の別設計が必要であり、対応しません。
 
@@ -388,7 +388,7 @@ Realtime APIとResponses WebSocket modeを含むWebSocket、WebRTC、SIP通信�
 |上記以外の経路|任意|ローカライズ済みエラーを伴うHTTP 404|
 |上記経路の未対応メソッド|—|ローカライズ済みエラーを伴うHTTP 405|
 
-`gemini-image`モードでは、プロキシはリクエストに`response_format`がなければ`b64_json`を付与し、`n`が1から10の整数であることを検証し、`response_format`が`b64_json`以外の場合やその他不正リクエストは上流へ送る前にHTTP 400で拒否し、`size`や`quality`などそれ以外のキーはそのまま透過し、リクエストに`size`と`aspect_ratio`の両方がない場合にのみ設定した`aspect_ratio`既定値を付与します。画像データは常にbase64エンコードされたJPEGで返ります。`logging`フィーチャーはこのモードでも`passthrough`と同様に機能します。
+`gemini-image`モードでは、プロキシはリクエストに`response_format`がなければ`b64_json`を付与し、`n`は省略可または1のみであることを検証し(Geminiはリクエストごとに1枚しか返さないため、それ以外の`n`はHTTP 400で拒否)、`response_format`が`b64_json`以外の場合やその他不正リクエストは上流へ送る前にHTTP 400で拒否し、`size`や`quality`などそれ以外のキーはそのまま透過し、リクエストに`size`と`aspect_ratio`の両方がない場合にのみ設定した`aspect_ratio`既定値を付与します。画像データは常にbase64エンコードされたJPEGで返ります。`logging`フィーチャーはこのモードでも`passthrough`と同様に機能します。
 
 OpenAI互換層での画像生成に使えるモデルは、Googleによるホワイトリストに制限されます。2026-09-09時点で動作を確認済みなのは`gemini-3-pro-image-preview`のみで、`gemini-2.5-flash-image`は公式文書に記載がありますが2026-10-02に提供終了予定です。GA名の`gemini-3-pro-image`と`gemini-3.1-flash-image`は現在この層経由ではHTTP 404となり利用できません。
 
@@ -459,7 +459,7 @@ featherless.aiは同時リクエストをunitで計量します。処理中の�
 
 - 起動時に`GET /v1/plan`からプランの同時接続上限を取得。`concurrency_limit`設定があればそれを優先。
 - `GET /account/concurrency`スナップショットを定期的に取得して実際の使用量を追跡。同じAPIキーでプロキシを経由しないリクエストの消費も反映。
-- プロキシ自身の予約をAPIキーごとに管理し、`max(ローカル予約, 上流使用量) + コスト`が上限を超えるリクエストは、APIキーごとのFIFOキューで待機。
+- プロキシ自身の予約をAPIキーごとに管理し、`max(ローカル予約, 上流使用量) + コスト`が上限を超えるリクエストは、APIキーごとのキューで待機。残り予算に収まる待機リクエストは到着順に受け入れ、収まらないリクエストはいったんスキップして、それより小さい後続リクエストが先に通ることがあります。スキップされたリクエストも、収まるまで待つかタイムアウトするまでキューに残ります。
 - 待機が`max_queue_wait_seconds`(既定60秒)を超えたら、OpenAI互換エラーでHTTP 429を応答。
 - 待機中のクライアント切断を検知したら、キュー枠と予約を解放。
 
@@ -539,6 +539,8 @@ curl -s 'https://api.featherless.ai/v1/models?per_page=100' | jq -r '.data[].id'
 - `capture.bodies`の既定値は**false**です。trueの場合だけ、JSON・テキスト・SSEのリクエスト・レスポンス本文を`max_body_bytes`(既定1 MiB、最大10 MiB)まで記録します。中継ストリームを待機・再構築しません。
 - multipartとバイナリ本文は保存しません。バイト数、SHA-256 digest、省略理由だけを記録します。テキスト本文が上限で切れた場合はレコードに明記します。
 - `Authorization`、プロキシ自身の認証情報、Cookie、APIキーヘッダー、`token`、`secret`、`password`、`api_key`を含む名前の値はマスクします。プロジェクト固有の名前は3つの`redaction`配列へ追加してください。自由文形式のプロンプトやツール出力に埋め込まれた秘密情報・個人情報をJSON redactionで確実に検出することはできません。
+
+`grok-image`と`gemini-image`の各モードでは、上流へのリクエスト送出時点で、変換後リクエストのバイト数とSHA-256 digestを記録した`upstream_request_sent`イベントも出力します。
 
 本文captureを有効にすると、ユーザープロンプトとモデル出力を意図的に保存します。信頼できる環境だけで有効にし、ログボリュームへのアクセス制御と保持・削除方針を定めてください。
 
