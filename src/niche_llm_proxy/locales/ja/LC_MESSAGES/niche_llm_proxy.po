@@ -81,6 +81,9 @@ msgstr "要求されたモデルは 'featherless' モードでは利用できま
 msgid "The request was rejected because the wait for upstream concurrency capacity exceeded the limit, in 'featherless' mode."
 msgstr "上流の同時接続キャパシティの待機が上限を超えたため、要求は拒否されました('featherless'モード)。"
 
+msgid "The client disconnected while waiting for upstream concurrency capacity in 'featherless' mode."
+msgstr "上流の同時接続キャパシティの待機中にクライアントが切断されたため、要求を中止しました('featherless'モード)。"
+
 
 msgid "listener.features must be an array."
 msgstr "listener.features は配列である必要があります。"

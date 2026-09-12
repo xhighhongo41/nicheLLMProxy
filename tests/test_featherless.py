@@ -6,7 +6,7 @@ import asyncio
 import hashlib
 import json
 import time
-from collections.abc import Callable
+from collections.abc import AsyncIterator, Callable
 from pathlib import Path
 from typing import Any
 
@@ -14,6 +14,7 @@ import httpx
 import pytest
 from fastapi import Request
 
+from niche_llm_proxy.app import _acquire_or_disconnect, create_app
 from niche_llm_proxy.config import FeatherlessConfig, ProxyConfig, load_config
 from niche_llm_proxy.featherless import (
     ConcurrencyGate,
@@ -62,6 +63,22 @@ def _detail_body(
     return body
 
 
+def _stream_json_response(
+    payload: dict[str, Any], request: httpx.Request
+) -> httpx.Response:
+    """Build a JSON response that stays streamable for ``stream=True`` sends."""
+
+    async def iterate() -> AsyncIterator[bytes]:
+        yield json.dumps(payload).encode("utf-8")
+
+    return httpx.Response(
+        200,
+        headers={"content-type": "application/json"},
+        content=iterate(),
+        request=request,
+    )
+
+
 class _FakeFeatherlessUpstream:
     """Serve model detail responses while recording the received requests."""
 
@@ -71,14 +88,17 @@ class _FakeFeatherlessUpstream:
         *,
         plan_concurrency: int = 8,
         used_cost: int = 0,
+        completions_delay: float = 0.0,
     ) -> None:
         self.details = details or {}
         self.plan_concurrency = plan_concurrency
         self.used_cost = used_cost
+        self.completions_delay = completions_delay
         self.requests: list[tuple[str, str, str | None]] = []
+        self.completions: list[tuple[str | None, str | None]] = []
         self.fail = False
 
-    def handler(self, request: httpx.Request) -> httpx.Response:
+    async def handler(self, request: httpx.Request) -> httpx.Response:
         self.requests.append(
             (
                 request.method,
@@ -90,32 +110,48 @@ class _FakeFeatherlessUpstream:
             return httpx.Response(503, request=request)
         path = request.url.path
         if path == "/v1/plan":
-            return httpx.Response(
-                200,
-                json={
+            return _stream_json_response(
+                {
                     "id": "feather_claw_pro",
                     "name": "Feather Agent Pro",
                     "max_context_length": 262144,
                     "concurrency": self.plan_concurrency,
                 },
-                request=request,
+                request,
             )
         if path == "/account/concurrency":
-            return httpx.Response(
-                200,
-                json={
+            return _stream_json_response(
+                {
                     "limit": self.plan_concurrency,
                     "used_cost": self.used_cost,
                     "request_count": 0,
                     "requests": [],
                 },
-                request=request,
+                request,
             )
         if path.startswith("/v1/models/"):
             model_id = path[len("/v1/models/") :]
             if model_id in self.details:
-                return httpx.Response(200, json=self.details[model_id], request=request)
+                return _stream_json_response(self.details[model_id], request)
             return httpx.Response(404, request=request)
+        if request.method == "POST" and path == "/v1/chat/completions":
+            try:
+                body = json.loads(request.content.decode("utf-8"))
+            except (UnicodeDecodeError, json.JSONDecodeError):
+                body = {}
+            model = body.get("model") if isinstance(body, dict) else None
+            self.completions.append((model, request.headers.get("authorization")))
+            if self.completions_delay:
+                await asyncio.sleep(self.completions_delay)
+            return _stream_json_response(
+                {
+                    "id": "chatcmpl-fake",
+                    "object": "chat.completion",
+                    "model": model,
+                    "choices": [],
+                },
+                request,
+            )
         return httpx.Response(404, request=request)
 
     @property
@@ -1043,3 +1079,331 @@ class TestGateRegistry:
         assert not gate.poll_running
         assert registry.gates == {}
         reservation.release()
+
+
+class TestAcquireOrDisconnect:
+    """Queue acquisition combined with client disconnect detection."""
+
+    @pytest.mark.anyio
+    async def test_returns_reservation_when_capacity_available(
+        self, make_gate: Any
+    ) -> None:
+        """An acquire that fits returns the reservation directly."""
+
+        gate = make_gate(_FakeFeatherlessUpstream())
+        request = _request(
+            "POST", "/v1/chat/completions", headers={"Authorization": AUTH1}
+        )
+
+        reservation = await _acquire_or_disconnect(
+            gate, 4, request, poll_interval_seconds=0.01
+        )
+
+        assert reservation is not None
+        assert reservation.cost == 4
+        reservation.release()
+
+    @pytest.mark.anyio
+    async def test_returns_none_when_client_disconnects(
+        self, make_gate: Any
+    ) -> None:
+        """A disconnected client leaves the queue and frees its waiter slot."""
+
+        gate = make_gate(
+            _FakeFeatherlessUpstream(),
+            settings=_gate_settings(concurrency_limit=4, max_queue_wait_seconds=5.0),
+        )
+        blocker = await gate.acquire(4)
+
+        class _DisconnectedRequest:
+            async def is_disconnected(self) -> bool:
+                return True
+
+        reservation = await _acquire_or_disconnect(
+            gate, 4, _DisconnectedRequest(), poll_interval_seconds=0.01
+        )
+
+        assert reservation is None
+        assert gate.queue_length == 0
+        blocker.release()
+
+
+class TestFeatherlessApp:
+    """End-to-end behaviour of the featherless mode through create_app."""
+
+    @pytest.fixture
+    async def make_app(
+        self, write_config: Callable[[dict[str, object] | None], Path]
+    ) -> Any:
+        """Provide an app factory that closes runtimes after the test."""
+
+        apps: list[Any] = []
+
+        def factory(
+            upstream: _FakeFeatherlessUpstream,
+            **featherless: object,
+        ) -> Any:
+            config = _featherless_config(write_config, **featherless)
+            app = create_app(config, httpx.MockTransport(upstream.handler))
+            apps.append(app)
+            return app
+
+        try:
+            yield factory
+        finally:
+            for app in apps:
+                runtime = getattr(app.state, "featherless_runtime", None)
+                if runtime is not None:
+                    await runtime.gates.close()
+
+    @staticmethod
+    def _client(app: Any) -> httpx.AsyncClient:
+        """Build a client wired to the app through the ASGI transport."""
+
+        return httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app),
+            base_url="http://testserver",
+        )
+
+    @pytest.mark.anyio
+    async def test_models_listing_served_from_cache(
+        self, make_app: Any
+    ) -> None:
+        """GET /v1/models returns the whitelisted models from the cache."""
+
+        upstream = _FakeFeatherlessUpstream(
+            details={KIMI: _detail_body(KIMI), QWEN: _detail_body(QWEN, concurrency_cost=2)}
+        )
+        app = make_app(upstream)
+
+        async with self._client(app) as client:
+            response = await client.get("/v1/models", headers={"Authorization": AUTH1})
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert [item["id"] for item in payload["data"]] == [KIMI, QWEN]
+        assert payload["total"] == 2
+        assert payload["pagination"]["total_items"] == 2
+
+    @pytest.mark.anyio
+    async def test_model_detail_whitelisted(self, make_app: Any) -> None:
+        """GET /v1/models/{id} serves a whitelisted model from the cache."""
+
+        upstream = _FakeFeatherlessUpstream(
+            details={KIMI: _detail_body(KIMI), QWEN: _detail_body(QWEN)}
+        )
+        app = make_app(upstream)
+
+        async with self._client(app) as client:
+            response = await client.get(
+                f"/v1/models/{KIMI}", headers={"Authorization": AUTH1}
+            )
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["id"] == KIMI
+        assert payload["available_on_current_plan"] is True
+
+    @pytest.mark.anyio
+    async def test_model_detail_outside_whitelist_rejected(
+        self, make_app: Any
+    ) -> None:
+        """GET /v1/models/{id} rejects models outside the whitelist."""
+
+        app = make_app(_FakeFeatherlessUpstream())
+
+        async with self._client(app) as client:
+            response = await client.get("/v1/models/unknown/model")
+
+        assert response.status_code == 404
+        payload = response.json()
+        assert payload["error"]["code"] == "model_not_found"
+
+    @pytest.mark.anyio
+    async def test_chat_completions_relays_client_authorization(
+        self, make_app: Any
+    ) -> None:
+        """POST /v1/chat/completions relays the client's own credentials."""
+
+        upstream = _FakeFeatherlessUpstream(details={KIMI: _detail_body(KIMI)})
+        app = make_app(upstream, concurrency_limit=8)
+
+        async with self._client(app) as client:
+            response = await client.post(
+                "/v1/chat/completions",
+                json={"model": KIMI, "messages": []},
+                headers={"Authorization": AUTH1},
+            )
+
+        assert response.status_code == 200
+        assert response.json()["model"] == KIMI
+        assert upstream.completions == [(KIMI, AUTH1)]
+
+    @pytest.mark.anyio
+    async def test_chat_completions_rejects_model_outside_whitelist(
+        self, make_app: Any
+    ) -> None:
+        """POST with a model outside the whitelist is rejected with 404."""
+
+        upstream = _FakeFeatherlessUpstream()
+        app = make_app(upstream, concurrency_limit=8)
+
+        async with self._client(app) as client:
+            response = await client.post(
+                "/v1/chat/completions",
+                json={"model": "unknown/model", "messages": []},
+                headers={"Authorization": AUTH1},
+            )
+
+        assert response.status_code == 404
+        payload = response.json()
+        assert payload["error"]["code"] == "model_not_found"
+        assert upstream.completions == []
+
+    @pytest.mark.anyio
+    async def test_operation_without_model_field_passes_through(
+        self, make_app: Any
+    ) -> None:
+        """A JSON body without a model field relays without the gate."""
+
+        upstream = _FakeFeatherlessUpstream(details={KIMI: _detail_body(KIMI)})
+        app = make_app(upstream, concurrency_limit=8)
+
+        async with self._client(app) as client:
+            response = await client.post(
+                "/v1/chat/completions",
+                json={"prompt": "a cat"},
+                headers={"Authorization": AUTH1},
+            )
+
+        assert response.status_code == 200
+        assert upstream.completions == [(None, AUTH1)]
+        assert all(
+            path != "/v1/plan" for _, path, _ in upstream.requests
+        )
+
+    @pytest.mark.anyio
+    async def test_non_json_operation_passes_through(self, make_app: Any) -> None:
+        """A non-JSON body relays without the gate."""
+
+        upstream = _FakeFeatherlessUpstream(details={KIMI: _detail_body(KIMI)})
+        app = make_app(upstream, concurrency_limit=8)
+
+        async with self._client(app) as client:
+            response = await client.post(
+                "/v1/chat/completions",
+                content=b"not json",
+                headers={"Authorization": AUTH1},
+            )
+
+        assert response.status_code == 200
+        assert upstream.completions == [(None, AUTH1)]
+        assert all(path != "/v1/plan" for _, path, _ in upstream.requests)
+
+    @pytest.mark.anyio
+    async def test_unauthenticated_operation_bypasses_gate(
+        self, make_app: Any
+    ) -> None:
+        """Anonymous requests relay without any gate or plan lookup."""
+
+        upstream = _FakeFeatherlessUpstream(details={KIMI: _detail_body(KIMI)})
+        app = make_app(upstream)
+
+        async with self._client(app) as client:
+            response = await client.post(
+                "/v1/chat/completions",
+                json={"model": KIMI, "messages": []},
+            )
+
+        assert response.status_code == 200
+        assert upstream.completions == [(KIMI, None)]
+        assert all(path != "/v1/plan" for _, path, _ in upstream.requests)
+
+    @pytest.mark.anyio
+    async def test_queue_timeout_returns_429(self, make_app: Any) -> None:
+        """A queued request that exceeds its wait budget gets a 429."""
+
+        upstream = _FakeFeatherlessUpstream(
+            details={KIMI: _detail_body(KIMI)}, completions_delay=0.5
+        )
+        app = make_app(upstream, concurrency_limit=4, max_queue_wait_seconds=0.1)
+
+        async with self._client(app) as client:
+            first = asyncio.create_task(
+                client.post(
+                    "/v1/chat/completions",
+                    json={"model": KIMI, "messages": []},
+                    headers={"Authorization": AUTH1},
+                )
+            )
+            await asyncio.sleep(0.05)
+            second = await client.post(
+                "/v1/chat/completions",
+                json={"model": KIMI, "messages": []},
+                headers={"Authorization": AUTH1},
+            )
+            first_response = await first
+
+        assert first_response.status_code == 200
+        assert second.status_code == 429
+        payload = second.json()
+        assert payload["error"]["code"] == "concurrency_queue_timeout"
+        assert payload["error"]["type"] == "rate_limit_error"
+
+    @pytest.mark.anyio
+    async def test_released_capacity_serves_next_request(
+        self, make_app: Any
+    ) -> None:
+        """A completed request releases its units for the next waiter."""
+
+        upstream = _FakeFeatherlessUpstream(
+            details={KIMI: _detail_body(KIMI)}, completions_delay=0.1
+        )
+        app = make_app(upstream, concurrency_limit=4, max_queue_wait_seconds=2.0)
+
+        async with self._client(app) as client:
+            first = asyncio.create_task(
+                client.post(
+                    "/v1/chat/completions",
+                    json={"model": KIMI, "messages": []},
+                    headers={"Authorization": AUTH1},
+                )
+            )
+            await asyncio.sleep(0.03)
+            second = await client.post(
+                "/v1/chat/completions",
+                json={"model": KIMI, "messages": []},
+                headers={"Authorization": AUTH1},
+            )
+            first_response = await first
+
+        assert first_response.status_code == 200
+        assert second.status_code == 200
+        assert upstream.completions == [(KIMI, AUTH1), (KIMI, AUTH1)]
+
+    @pytest.mark.anyio
+    async def test_health_unchanged(self, make_app: Any) -> None:
+        """GET /health keeps its existing contract."""
+
+        app = make_app(_FakeFeatherlessUpstream())
+
+        async with self._client(app) as client:
+            response = await client.get("/health")
+
+        assert response.status_code == 200
+        assert response.json() == {"status": "ok"}
+
+    @pytest.mark.anyio
+    async def test_other_get_path_passes_through(self, make_app: Any) -> None:
+        """GET paths outside /v1/models relay unchanged."""
+
+        upstream = _FakeFeatherlessUpstream()
+        app = make_app(upstream)
+
+        async with self._client(app) as client:
+            response = await client.get(
+                "/account/concurrency", headers={"Authorization": AUTH1}
+            )
+
+        assert response.status_code == 200
+        assert response.json()["used_cost"] == 0

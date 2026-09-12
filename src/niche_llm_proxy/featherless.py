@@ -37,6 +37,7 @@ __all__ = [
     "handle_featherless_model_detail",
     "handle_featherless_models",
     "key_id_from_authorization",
+    "openai_error_response",
     "queue_wait_timeout_response",
 ]
 
@@ -114,7 +115,7 @@ def extract_model_reference(body: bytes) -> str | None:
     return model
 
 
-def _openai_error_response(status_code: int, message: str) -> JSONResponse:
+def openai_error_response(status_code: int, message: str) -> JSONResponse:
     """Build an OpenAI-compatible error JSON body."""
 
     return JSONResponse(
@@ -844,7 +845,7 @@ async def handle_featherless_model_detail(
                 "featherless_whitelist",
                 TransformError(404, message),
             )
-        return _openai_error_response(404, message)
+        return openai_error_response(404, message)
 
     key = await runtime.cache.ensure_warm(request.headers.get("authorization"))
     payload = runtime.cache.model_payload(model_id, key)
@@ -857,7 +858,7 @@ async def handle_featherless_model_detail(
                 "featherless_whitelist",
                 TransformError(404, message),
             )
-        return _openai_error_response(404, message)
+        return openai_error_response(404, message)
 
     response = JSONResponse(content=payload)
     if exchange is not None:

@@ -67,6 +67,13 @@ def test_japanese_catalog_translates_featherless_runtime_messages(
         )
         == "上流の同時接続キャパシティの待機が上限を超えたため、要求は拒否されました('featherless'モード)。"
     )
+    assert (
+        translate(
+            "The client disconnected while waiting for upstream "
+            "concurrency capacity in 'featherless' mode."
+        )
+        == "上流の同時接続キャパシティの待機中にクライアントが切断されたため、要求を中止しました('featherless'モード)。"
+    )
 
 
 def test_main_localizes_configuration_error_prefix(
