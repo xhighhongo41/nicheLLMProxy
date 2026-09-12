@@ -1,5 +1,11 @@
 # Changelog
 
+### v1.3.0 (2026-09-12)
+
+- Added the `featherless` listener mode, which presents featherless.ai through an OpenAI-compatible interface with a model whitelist: `GET /v1/models` lists only the configured `model_whitelist`, and other endpoints are relayed with the client's `Authorization` header (the proxy holds no API key).
+- Added per-API-key concurrent-request gating for `featherless` mode: the plan limit is fetched from `GET /v1/plan` (overridable with `concurrency_limit`), actual usage is tracked through `GET /account/concurrency` snapshots, and requests that would exceed the limit are queued first-in-first-out up to `max_queue_wait_seconds` (default 60) before answering HTTP 429.
+- Added the optional `listener.featherless` settings: required `model_whitelist`, and optional `concurrency_limit`, `max_queue_wait_seconds`, and `cache_ttl_seconds`.
+
 ### v1.2.2 (2026-09-10)
 
 - Extracted the full release history into `CHANGELOG.md` and condensed the README changelog to the latest entry with a link to it.
