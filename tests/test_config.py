@@ -219,18 +219,121 @@ def test_load_config_rejects_invalid_logging_feature(
         load_config(write_config({"listeners": [make_listener({"features": features})]}))
 
 
-def test_load_config_accepts_grok_image_mode(
+@pytest.mark.parametrize(
+    ("mode", "section"),
+    [
+        ("grok-image", "grok_image"),
+        ("gemini-image", "gemini_image"),
+        ("featherless", "featherless"),
+    ],
+)
+def test_load_config_skips_listener_when_mode_section_is_missing(
+    monkeypatch: pytest.MonkeyPatch,
+    write_config: Callable[[dict[str, object] | None], Path],
+    make_listener: Callable[[dict[str, object]], dict[str, object]],
+    mode: str,
+    section: str,
+) -> None:
+    """Skip a listener before other validation when its mode section is absent."""
+    monkeypatch.setenv("UPSTREAM_API_KEY", "secret-value")
+    config = load_config(
+        write_config(
+            {
+                "listeners": [
+                    make_listener(),
+                    make_listener({"port": 8001, "mode": mode}),
+                ]
+            }
+        )
+    )
+
+    expected_warning = (
+        f"Skipped the listener on port 8001 because mode '{mode}' requires a "
+        f"'{section}' section, which is missing from the configuration."
+    )
+    assert [runtime.listener.port for runtime in config.listeners] == [8000]
+    assert config.warnings == (expected_warning,)
+
+
+@pytest.mark.parametrize("mode", ["grok-image", "gemini-image", "featherless"])
+def test_load_config_rejects_config_with_only_skipped_listeners(
+    write_config: Callable[[dict[str, object] | None], Path],
+    make_listener: Callable[[dict[str, object]], dict[str, object]],
+    mode: str,
+) -> None:
+    """Reject a configuration whose listeners are all skipped."""
+    with pytest.raises(ConfigError) as error:
+        load_config(
+            write_config(
+                {
+                    "listeners": [
+                        make_listener({"mode": mode}),
+                        make_listener({"port": 8001, "mode": mode}),
+                    ]
+                }
+            )
+        )
+
+    assert "No listeners can be started" in str(error.value)
+    assert "8000" in str(error.value)
+    assert "8001" in str(error.value)
+
+
+def test_load_config_keeps_remaining_listeners_when_others_are_skipped(
     monkeypatch: pytest.MonkeyPatch,
     write_config: Callable[[dict[str, object] | None], Path],
     make_listener: Callable[[dict[str, object]], dict[str, object]],
 ) -> None:
-    """Accept grok-image mode without a grok_image object."""
+    """Keep startable listeners and warn once per skipped listener."""
     monkeypatch.setenv("UPSTREAM_API_KEY", "secret-value")
-    config = load_config(write_config({"listeners": [make_listener({"mode": "grok-image"})]}))
+    config = load_config(
+        write_config(
+            {
+                "listeners": [
+                    make_listener(),
+                    make_listener({"port": 8001, "mode": "grok-image"}),
+                    make_listener(
+                        {
+                            "port": 8002,
+                            "mode": "featherless",
+                            "upstream": {"base_url": "https://api.featherless.ai"},
+                        }
+                    ),
+                ]
+            }
+        )
+    )
 
-    runtime = config.listeners[0]
-    assert runtime.listener.mode == "grok-image"
-    assert runtime.listener.grok_image is None
+    assert [runtime.listener.port for runtime in config.listeners] == [8000]
+    assert [runtime.listener.mode for runtime in config.listeners] == ["passthrough"]
+    assert len(config.warnings) == 2
+    assert "8001" in config.warnings[0]
+    assert "grok-image" in config.warnings[0]
+    assert "8002" in config.warnings[1]
+    assert "featherless" in config.warnings[1]
+    assert config.listeners[0].warnings == ()
+
+
+def test_load_config_allows_kept_listener_to_reuse_skipped_listener_port(
+    monkeypatch: pytest.MonkeyPatch,
+    write_config: Callable[[dict[str, object] | None], Path],
+    make_listener: Callable[[dict[str, object]], dict[str, object]],
+) -> None:
+    """Duplicate ports only count listeners that actually start."""
+    monkeypatch.setenv("UPSTREAM_API_KEY", "secret-value")
+    config = load_config(
+        write_config(
+            {
+                "listeners": [
+                    make_listener({"mode": "grok-image"}),
+                    make_listener(),
+                ]
+            }
+        )
+    )
+
+    assert [runtime.listener.port for runtime in config.listeners] == [8000]
+    assert len(config.warnings) == 1
 
 
 def test_load_config_reads_grok_image_settings(
@@ -276,7 +379,7 @@ def test_load_config_warns_on_grok_image_in_passthrough_mode(
     assert config.listeners[0].warnings == (expected_warning,)
 
 
-@pytest.mark.parametrize("grok_image", ["x", ["x"], 123, True])
+@pytest.mark.parametrize("grok_image", ["x", ["x"], 123, True, None])
 def test_load_config_rejects_non_object_grok_image(
     monkeypatch: pytest.MonkeyPatch,
     write_config: Callable[[dict[str, object] | None], Path],
@@ -383,20 +486,6 @@ def test_load_config_validates_grok_image_resolution(
             load_config(config_path)
 
 
-def test_load_config_accepts_gemini_image_mode(
-    monkeypatch: pytest.MonkeyPatch,
-    write_config: Callable[[dict[str, object] | None], Path],
-    make_listener: Callable[[dict[str, object]], dict[str, object]],
-) -> None:
-    """Accept gemini-image mode without a gemini_image object."""
-    monkeypatch.setenv("UPSTREAM_API_KEY", "secret-value")
-    config = load_config(write_config({"listeners": [make_listener({"mode": "gemini-image"})]}))
-
-    runtime = config.listeners[0]
-    assert runtime.listener.mode == "gemini-image"
-    assert runtime.listener.gemini_image is None
-
-
 def test_load_config_reads_gemini_image_settings(
     monkeypatch: pytest.MonkeyPatch,
     write_config: Callable[[dict[str, object] | None], Path],
@@ -430,7 +519,13 @@ def test_load_config_warns_on_gemini_image_in_other_modes(
 ) -> None:
     """Warn when gemini-image settings appear in another listener mode."""
     monkeypatch.setenv("UPSTREAM_API_KEY", "secret-value")
-    listener = make_listener({"mode": mode, "gemini_image": {"aspect_ratio": "1:1"}})
+    listener_overrides: dict[str, object] = {
+        "mode": mode,
+        "gemini_image": {"aspect_ratio": "1:1"},
+    }
+    if mode == "grok-image":
+        listener_overrides["grok_image"] = {}
+    listener = make_listener(listener_overrides)
     config = load_config(write_config({"listeners": [listener]}))
 
     expected_warning = (
@@ -440,7 +535,7 @@ def test_load_config_warns_on_gemini_image_in_other_modes(
     assert config.listeners[0].warnings == (expected_warning,)
 
 
-@pytest.mark.parametrize("gemini_image", ["x", ["x"], 123, True])
+@pytest.mark.parametrize("gemini_image", ["x", ["x"], 123, True, None])
 def test_load_config_rejects_non_object_gemini_image(
     monkeypatch: pytest.MonkeyPatch,
     write_config: Callable[[dict[str, object] | None], Path],
@@ -664,9 +759,15 @@ def test_load_config_warns_on_featherless_in_other_modes(
 ) -> None:
     """Warn when featherless settings appear in another listener mode."""
     monkeypatch.setenv("UPSTREAM_API_KEY", "secret-value")
-    listener = make_listener(
-        {"mode": mode, "featherless": {"model_whitelist": ["moonshotai/Kimi-K2.6"]}}
-    )
+    listener_overrides: dict[str, object] = {
+        "mode": mode,
+        "featherless": {"model_whitelist": ["moonshotai/Kimi-K2.6"]},
+    }
+    if mode == "grok-image":
+        listener_overrides["grok_image"] = {}
+    if mode == "gemini-image":
+        listener_overrides["gemini_image"] = {}
+    listener = make_listener(listener_overrides)
     config = load_config(write_config({"listeners": [listener]}))
 
     expected_warning = (
@@ -676,7 +777,7 @@ def test_load_config_warns_on_featherless_in_other_modes(
     assert config.listeners[0].warnings == (expected_warning,)
 
 
-@pytest.mark.parametrize("featherless", ["x", ["x"], 123, True])
+@pytest.mark.parametrize("featherless", ["x", ["x"], 123, True, None])
 def test_load_config_rejects_non_object_featherless(
     monkeypatch: pytest.MonkeyPatch,
     write_config: Callable[[dict[str, object] | None], Path],

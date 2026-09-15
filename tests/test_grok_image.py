@@ -389,13 +389,12 @@ def _grok_image_config(
     listener: dict[str, object] = {
         "port": 8000,
         "mode": "grok-image",
+        "grok_image": grok_image if grok_image is not None else {},
         "upstream": {
             "base_url": "https://upstream.example.test",
             "api_key_env": "XAI_API_KEY",
         },
     }
-    if grok_image is not None:
-        listener["grok_image"] = grok_image
     if logging_config is not None:
         listener["features"] = [{"name": "logging", "config": logging_config}]
     return load_config(write_config({"listeners": [listener]})).listeners[0]

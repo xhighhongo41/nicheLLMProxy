@@ -48,6 +48,31 @@ class ConfigError(ValueError):
     """Raised when required startup configuration is invalid or missing."""
 
 
+class _ListenerSkipped(Exception):
+    """Internal marker that a listener is skipped for a missing mode section.
+
+    Carries the identifying details so ``load_config`` can report one warning
+    per skipped listener. Never escapes to callers of :func:`load_config`.
+    """
+
+    def __init__(self, port: int, mode: str, section: str) -> None:
+        super().__init__(port, mode, section)
+        self.port = port
+        self.mode = mode
+        self.section = section
+
+
+_MODE_SECTIONS = {
+    "grok-image": "grok_image",
+    "gemini-image": "gemini_image",
+    "featherless": "featherless",
+}
+"""Configuration section required by each mode that has mode-specific settings.
+
+``passthrough`` has no mode-specific section and is absent on purpose.
+"""
+
+
 @dataclass(frozen=True)
 class ListenerConfig:
     """Listening configuration for a single listener."""
@@ -199,6 +224,10 @@ def load_config(
 
     API key values are read only from environment variables and are excluded from errors.
 
+    Listeners whose mode requires a mode-specific section (see ``MODE_SECTIONS``)
+    are skipped with one global warning per listener when that section is
+    missing. If every listener is skipped, loading fails.
+
     Args:
         config_path: Configuration file path. Uses the environment or default path if omitted.
         environ: Environment variables to read. Uses the process environment by default.
@@ -230,7 +259,33 @@ def load_config(
     if any(not isinstance(item, dict) for item in listeners_data):
         raise ConfigError(translate("Each 'listeners' item must be an object."))
 
-    listeners = tuple(_listener_runtime(item, environment) for item in listeners_data)
+    listeners: list[ListenerRuntimeConfig] = []
+    skipped_ports: list[int] = []
+    global_warnings: list[str] = []
+    for item in listeners_data:
+        try:
+            listeners.append(_listener_runtime(item, environment))
+        except _ListenerSkipped as skipped:
+            skipped_ports.append(skipped.port)
+            global_warnings.append(
+                translate(
+                    "Skipped the listener on port {port} because mode "
+                    "'{mode}' requires a '{section}' section, which is "
+                    "missing from the configuration.",
+                    port=skipped.port,
+                    mode=skipped.mode,
+                    section=skipped.section,
+                )
+            )
+
+    if not listeners:
+        raise ConfigError(
+            translate(
+                "No listeners can be started because every listener was "
+                "skipped. Skipped ports: {ports}.",
+                ports=", ".join(str(port) for port in skipped_ports),
+            )
+        )
 
     ports = [runtime.listener.port for runtime in listeners]
     duplicate_ports = sorted({port for port in ports if ports.count(port) > 1})
@@ -242,7 +297,6 @@ def load_config(
             )
         )
 
-    global_warnings: list[str] = []
     log_file_paths = [
         str(runtime.logging.file.path)
         for runtime in listeners
@@ -278,11 +332,19 @@ def _listener_runtime(
     listener_data: Mapping[str, Any],
     environment: Mapping[str, str],
 ) -> ListenerRuntimeConfig:
-    """Validate one listener entry and resolve its upstream key."""
+    """Validate one listener entry and resolve its upstream key.
+
+    Raises:
+        _ListenerSkipped: Before any other validation, when the listener's
+            mode requires a mode-specific section that is not configured.
+    """
 
     warnings: list[str] = []
     port = _port(listener_data)
     mode = _mode(listener_data)
+    section = _MODE_SECTIONS.get(mode)
+    if section is not None and section not in listener_data:
+        raise _ListenerSkipped(port=port, mode=mode, section=section)
     listener = ListenerConfig(
         port=port,
         mode=mode,

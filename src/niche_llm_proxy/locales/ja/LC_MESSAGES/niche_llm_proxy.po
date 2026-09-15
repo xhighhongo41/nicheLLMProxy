@@ -190,6 +190,15 @@ msgstr "  - ポート {port}: モード '{mode}'、フィーチャー: {features
 msgid "  - port {port}: mode '{mode}' with no features."
 msgstr "  - ポート {port}: モード '{mode}'、フィーチャーはありません。"
 
+msgid "Skipped the listener on port {port} because mode '{mode}' requires a '{section}' section, which is missing from the configuration."
+msgstr "モード '{mode}' には '{section}' セクションが必要ですが設定に存在しないため、ポート {port} のリスナーをスキップしました。"
+
+msgid "No listeners can be started because every listener was skipped. Skipped ports: {ports}."
+msgstr "すべてのリスナーがスキップされたため、リスナーを起動できません。スキップされたポート: {ports}。"
+
+msgid "The 'featherless' mode requires a 'featherless' section in the configuration."
+msgstr "'featherless' モードには設定内の 'featherless' セクションが必要です。"
+
 msgid "Unknown top-level configuration keys were ignored: {keys}."
 msgstr "未知の最上位設定キーは無視されました: {keys}。"
 
