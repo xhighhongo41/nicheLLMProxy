@@ -76,7 +76,9 @@ def create_app(
     upstream_transport: httpx.AsyncBaseTransport | None = None,
 ) -> FastAPI:
     """Create a passthrough ASGI application for the supplied configuration."""
-    logging_runtime = LoggingRuntime(config.logging) if config.logging is not None else None
+    logging_runtime = (
+        LoggingRuntime(config.logging, config.listener.port) if config.logging is not None else None
+    )
     featherless_runtime = (
         FeatherlessRuntime(config, upstream_transport)
         if config.listener.mode == "featherless"
