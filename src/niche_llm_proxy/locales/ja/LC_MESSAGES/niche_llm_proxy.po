@@ -33,23 +33,14 @@ msgstr "listener.port は1から65535までの整数である必要がありま�
 msgid "listener.mode must be 'passthrough', 'grok-image', 'gemini-image' or 'featherless'."
 msgstr "listener.mode は 'passthrough'、'grok-image'、'gemini-image' または 'featherless' である必要があります。"
 
-msgid "listener.grok_image is only supported in 'grok-image' mode."
-msgstr "listener.grok_image は 'grok-image' モードでのみ指定できます。"
-
 msgid "listener.grok_image.{key} must be a non-empty string."
 msgstr "listener.grok_image.{key} は空でない文字列である必要があります。"
 
 msgid "listener.grok_image.resolution must be '1k' or '2k'."
 msgstr "listener.grok_image.resolution は '1k' または '2k' である必要があります。"
 
-msgid "listener.gemini_image is only supported in 'gemini-image' mode."
-msgstr "listener.gemini_image は 'gemini-image' モードでのみ指定できます。"
-
 msgid "listener.gemini_image.{key} must be a non-empty string."
 msgstr "listener.gemini_image.{key} は空でない文字列である必要があります。"
-
-msgid "listener.featherless is only supported in 'featherless' mode."
-msgstr "listener.featherless は 'featherless' モードでのみ指定できます。"
 
 msgid "upstream.api_key_env is not used in 'featherless' mode. The proxy relays the client's Authorization header."
 msgstr "upstream.api_key_env は 'featherless' モードでは使用されません。プロキシはクライアントのAuthorizationヘッダーを転送します。"
@@ -171,3 +162,24 @@ msgstr "'gemini-image' モードでは、リクエスト本文はJSONオブジ�
 
 msgid "'response_format' must be 'b64_json' in 'gemini-image' mode."
 msgstr "'gemini-image' モードでは、'response_format' は 'b64_json' である必要があります。"
+
+msgid "nicheLLM Proxy {version} starting in '{mode}' mode with features: {features}."
+msgstr "nicheLLM Proxy {version} を '{mode}' モードで起動します。フィーチャー: {features}。"
+
+msgid "nicheLLM Proxy {version} starting in '{mode}' mode with no features."
+msgstr "nicheLLM Proxy {version} を '{mode}' モードで起動します。フィーチャーはありません。"
+
+msgid "Unknown top-level configuration keys were ignored: {keys}."
+msgstr "未知の最上位設定キーは無視されました: {keys}。"
+
+msgid "listener.grok_image is ignored because listener.mode is not 'grok-image'."
+msgstr "listener.grok_image は listener.mode が 'grok-image' でないため無視されました。"
+
+msgid "listener.gemini_image is ignored because listener.mode is not 'gemini-image'."
+msgstr "listener.gemini_image は listener.mode が 'gemini-image' でないため無視されました。"
+
+msgid "listener.featherless is ignored because listener.mode is not 'featherless'."
+msgstr "listener.featherless は listener.mode が 'featherless' でないため無視されました。"
+
+msgid "logging.file settings were ignored because logging.file.enabled is false."
+msgstr "logging.file.enabled が false のため、logging.file の設定は無視されました。"

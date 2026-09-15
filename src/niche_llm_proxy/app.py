@@ -55,6 +55,9 @@ from niche_llm_proxy.passthrough import (
     upstream_error_detail,
 )
 
+PROXY_VERSION = "1.3.1"
+"""Proxy release version reported by the health endpoint and startup log."""
+
 _FORWARDED_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"]
 
 _UNSUPPORTED_PATH_MESSAGES = {
@@ -96,7 +99,7 @@ def create_app(
 
     app = FastAPI(
         title="nicheLLM Proxy",
-        version="1.3.1",
+        version=PROXY_VERSION,
         docs_url=None,
         redoc_url=None,
         lifespan=lifespan,
@@ -106,9 +109,14 @@ def create_app(
     app.state.featherless_runtime = featherless_runtime
 
     @app.get("/health")
-    async def health() -> dict[str, str]:
-        """Return the proxy's liveness state."""
-        return {"status": "ok"}
+    async def health() -> dict[str, str | list[str]]:
+        """Return the proxy's liveness state, version, mode, and enabled features."""
+        return {
+            "status": "ok",
+            "version": PROXY_VERSION,
+            "mode": config.listener.mode,
+            "features": ["logging" for _ in config.listener.features],
+        }
 
     @app.api_route(
         "/{path:path}",

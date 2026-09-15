@@ -10,7 +10,7 @@ from pathlib import Path
 import httpx
 import pytest
 
-from niche_llm_proxy.app import create_app
+from niche_llm_proxy.app import PROXY_VERSION, create_app
 from niche_llm_proxy.config import (
     GeminiImageConfig,
     ProxyConfig,
@@ -735,7 +735,12 @@ async def test_health_does_not_contact_upstream_in_gemini_image_mode(
         response = await client.get("/health")
 
     assert response.status_code == 200
-    assert response.json() == {"status": "ok"}
+    assert response.json() == {
+        "status": "ok",
+        "version": PROXY_VERSION,
+        "mode": "gemini-image",
+        "features": [],
+    }
     assert not contacted
 
 
