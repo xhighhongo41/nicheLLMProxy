@@ -12,7 +12,7 @@ import pytest
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 
-from niche_llm_proxy.app import create_app
+from niche_llm_proxy.app import PROXY_VERSION, create_app
 from niche_llm_proxy.config import ProxyConfig, load_config
 from niche_llm_proxy.passthrough import create_http_client, stream_response
 
@@ -84,8 +84,48 @@ async def test_health_does_not_contact_upstream(proxy_config: ProxyConfig) -> No
         response = await client.get("/health")
 
     assert response.status_code == 200
-    assert response.json() == {"status": "ok"}
+    assert response.json() == {
+        "status": "ok",
+        "version": PROXY_VERSION,
+        "mode": "passthrough",
+        "features": [],
+    }
     assert not contacted
+
+
+@pytest.mark.anyio
+async def test_health_reports_enabled_logging_feature(
+    monkeypatch: pytest.MonkeyPatch,
+    write_config: Callable[[dict[str, object] | None], Path],
+) -> None:
+    """Report the configured feature names in the health response."""
+    monkeypatch.setenv("UPSTREAM_API_KEY", "upstream-secret")
+    config = load_config(
+        write_config(
+            {
+                "listener": {
+                    "port": 8000,
+                    "mode": "passthrough",
+                    "features": [{"name": "logging", "config": {"stdout": True}}],
+                }
+            }
+        )
+    )
+
+    app = create_app(config)
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app),
+        base_url="http://proxy.test",
+    ) as client:
+        response = await client.get("/health")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": "ok",
+        "version": PROXY_VERSION,
+        "mode": "passthrough",
+        "features": ["logging"],
+    }
 
 
 def test_create_http_client_allows_unlimited_read_timeout(
@@ -194,12 +234,14 @@ async def test_passthrough_relays_sse_chunks_in_order(
         return StreamingResponse(events(), media_type="text/event-stream")
 
     app = create_app(proxy_config, httpx.ASGITransport(app=upstream))
-    async with httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=app),
-        base_url="http://proxy.test",
-    ) as client:
-        async with client.stream("POST", "/v1/chat/completions") as response:
-            content = b"".join([chunk async for chunk in response.aiter_bytes()])
+    async with (
+        httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app),
+            base_url="http://proxy.test",
+        ) as client,
+        client.stream("POST", "/v1/chat/completions") as response,
+    ):
+        content = b"".join([chunk async for chunk in response.aiter_bytes()])
 
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("text/event-stream")
@@ -367,12 +409,14 @@ async def test_responses_sse_preserves_events_and_end_to_end_headers(
         )
 
     app = create_app(proxy_config, httpx.MockTransport(upstream_handler))
-    async with httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=app),
-        base_url="http://proxy.test",
-    ) as client:
-        async with client.stream("POST", "/v1/responses", content=b'{"stream":true}') as response:
-            content = b"".join([chunk async for chunk in response.aiter_bytes()])
+    async with (
+        httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app),
+            base_url="http://proxy.test",
+        ) as client,
+        client.stream("POST", "/v1/responses", content=b'{"stream":true}') as response,
+    ):
+        content = b"".join([chunk async for chunk in response.aiter_bytes()])
 
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("text/event-stream")

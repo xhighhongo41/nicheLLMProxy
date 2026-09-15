@@ -222,24 +222,30 @@ def test_load_config_reads_grok_image_settings(
     assert grok_image.resolution == "1k"
 
 
-def test_load_config_rejects_grok_image_in_passthrough_mode(
+def test_load_config_warns_on_grok_image_in_passthrough_mode(
     monkeypatch: pytest.MonkeyPatch,
     write_config: Callable[[dict[str, object] | None], Path],
 ) -> None:
-    """Reject a grok_image object when the listener runs in passthrough mode."""
+    """Ignore a grok_image object in passthrough mode with a warning."""
     monkeypatch.setenv("UPSTREAM_API_KEY", "secret-value")
-    with pytest.raises(ConfigError, match="grok-image"):
-        load_config(
-            write_config(
-                {
-                    "listener": {
-                        "port": 8000,
-                        "mode": "passthrough",
-                        "grok_image": {"default_model": "grok-imagine-image-2.0"},
-                    }
+    config = load_config(
+        write_config(
+            {
+                "listener": {
+                    "port": 8000,
+                    "mode": "passthrough",
+                    "grok_image": {"default_model": "grok-imagine-image-2.0"},
                 }
-            )
+            }
         )
+    )
+
+    expected_warning = (
+        "listener.grok_image is ignored because "
+        "listener.mode is not 'grok-image'."
+    )
+    assert config.listener.grok_image is None
+    assert config.warnings == (expected_warning,)
 
 
 @pytest.mark.parametrize(
@@ -427,27 +433,33 @@ def test_load_config_reads_gemini_image_settings(
 
 
 @pytest.mark.parametrize("mode", ["passthrough", "grok-image"])
-def test_load_config_rejects_gemini_image_in_other_modes(
+def test_load_config_warns_on_gemini_image_in_other_modes(
     monkeypatch: pytest.MonkeyPatch,
     write_config: Callable[[dict[str, object] | None], Path],
     mode: str,
 ) -> None:
-    """Reject a gemini_image object when the listener runs in another mode."""
+    """Ignore a gemini_image object in another mode with a warning."""
     monkeypatch.setenv("UPSTREAM_API_KEY", "secret-value")
-    with pytest.raises(ConfigError, match="gemini-image"):
-        load_config(
-            write_config(
-                {
-                    "listener": {
-                        "port": 8000,
-                        "mode": mode,
-                        "gemini_image": {
-                            "default_model": "gemini-3-pro-image-preview"
-                        },
-                    }
+    config = load_config(
+        write_config(
+            {
+                "listener": {
+                    "port": 8000,
+                    "mode": mode,
+                    "gemini_image": {
+                        "default_model": "gemini-3-pro-image-preview"
+                    },
                 }
-            )
+            }
         )
+    )
+
+    expected_warning = (
+        "listener.gemini_image is ignored because "
+        "listener.mode is not 'gemini-image'."
+    )
+    assert config.listener.gemini_image is None
+    assert config.warnings == (expected_warning,)
 
 
 @pytest.mark.parametrize(
@@ -720,25 +732,31 @@ def test_load_config_accepts_null_api_key_env_in_featherless_mode(
 
 
 @pytest.mark.parametrize("mode", ["passthrough", "grok-image", "gemini-image"])
-def test_load_config_rejects_featherless_in_other_modes(
+def test_load_config_warns_on_featherless_in_other_modes(
     monkeypatch: pytest.MonkeyPatch,
     write_config: Callable[[dict[str, object] | None], Path],
     mode: str,
 ) -> None:
-    """Reject a featherless object when the listener runs in another mode."""
+    """Ignore a featherless object in another mode with a warning."""
     monkeypatch.setenv("UPSTREAM_API_KEY", "secret-value")
-    with pytest.raises(ConfigError, match="only supported in 'featherless' mode"):
-        load_config(
-            write_config(
-                {
-                    "listener": {
-                        "port": 8000,
-                        "mode": mode,
-                        "featherless": {"model_whitelist": ["moonshotai/Kimi-K2.6"]},
-                    }
+    config = load_config(
+        write_config(
+            {
+                "listener": {
+                    "port": 8000,
+                    "mode": mode,
+                    "featherless": {"model_whitelist": ["moonshotai/Kimi-K2.6"]},
                 }
-            )
+            }
         )
+    )
+
+    expected_warning = (
+        "listener.featherless is ignored because "
+        "listener.mode is not 'featherless'."
+    )
+    assert config.listener.featherless is None
+    assert config.warnings == (expected_warning,)
 
 
 @pytest.mark.parametrize(
@@ -987,4 +1005,148 @@ def test_load_config_rejects_null_connect_seconds(
     with pytest.raises(ConfigError, match="connect_seconds"):
         load_config(
             write_config({"timeouts": {"connect_seconds": None, "read_seconds": 2}})
+        )
+
+
+def test_load_config_warns_on_unknown_top_level_key(
+    monkeypatch: pytest.MonkeyPatch,
+    write_config: Callable[[dict[str, object] | None], Path],
+) -> None:
+    """Warn on a misspelled top-level key while still loading the configuration."""
+    monkeypatch.setenv("UPSTREAM_API_KEY", "secret-value")
+    config = load_config(
+        write_config(
+            {"listener": {"port": 8000, "mode": "passthrough"}, "timeout": 5}
+        )
+    )
+
+    assert config.listener.port == 8000
+    assert config.warnings == (
+        "Unknown top-level configuration keys were ignored: timeout.",
+    )
+
+
+def test_load_config_warns_on_multiple_unknown_top_level_keys_sorted(
+    monkeypatch: pytest.MonkeyPatch,
+    write_config: Callable[[dict[str, object] | None], Path],
+) -> None:
+    """Warn on every unknown top-level key listed in sorted order."""
+    monkeypatch.setenv("UPSTREAM_API_KEY", "secret-value")
+    config = load_config(
+        write_config(
+            {
+                "listener": {"port": 8000, "mode": "passthrough"},
+                "zeta_key": True,
+                "alpha_key": True,
+            }
+        )
+    )
+
+    assert config.warnings == (
+        "Unknown top-level configuration keys were ignored: alpha_key, zeta_key.",
+    )
+
+
+def test_load_config_has_no_warnings_for_valid_settings(
+    monkeypatch: pytest.MonkeyPatch,
+    write_config: Callable[[dict[str, object] | None], Path],
+) -> None:
+    """Keep the warnings tuple empty when the configuration needs no warnings."""
+    monkeypatch.setenv("UPSTREAM_API_KEY", "secret-value")
+    config = load_config(write_config())
+
+    assert config.warnings == ()
+
+
+@pytest.mark.parametrize("file_setting", ["path", "max_bytes", "backup_count"])
+def test_load_config_warns_on_disabled_file_with_settings(
+    monkeypatch: pytest.MonkeyPatch,
+    write_config: Callable[[dict[str, object] | None], Path],
+    tmp_path: Path,
+    file_setting: str,
+) -> None:
+    """Warn when disabled file output still carries file settings."""
+    monkeypatch.setenv("UPSTREAM_API_KEY", "secret-value")
+    file_config: dict[str, object] = {"enabled": False}
+    if file_setting == "path":
+        file_config["path"] = str(tmp_path / "proxy.jsonl")
+    elif file_setting == "max_bytes":
+        file_config["max_bytes"] = 100
+    else:
+        file_config["backup_count"] = 2
+    config = load_config(
+        write_config(
+            {
+                "listener": {
+                    "port": 8000,
+                    "mode": "passthrough",
+                    "features": [
+                        {
+                            "name": "logging",
+                            "config": {
+                                "stdout": True,
+                                "file": file_config,
+                            },
+                        }
+                    ],
+                }
+            }
+        )
+    )
+
+    assert config.logging is not None
+    assert config.logging.file.enabled is False
+    assert config.logging.file.path is None
+    expected_warning = (
+        "logging.file settings were ignored because "
+        "logging.file.enabled is false."
+    )
+    assert config.warnings == (expected_warning,)
+
+
+def test_load_config_has_no_warning_for_bare_disabled_file(
+    monkeypatch: pytest.MonkeyPatch,
+    write_config: Callable[[dict[str, object] | None], Path],
+) -> None:
+    """Do not warn when the disabled file section carries no settings."""
+    monkeypatch.setenv("UPSTREAM_API_KEY", "secret-value")
+    config = load_config(
+        write_config(
+            {
+                "listener": {
+                    "port": 8000,
+                    "mode": "passthrough",
+                    "features": [
+                        {
+                            "name": "logging",
+                            "config": {
+                                "stdout": True,
+                                "file": {"enabled": False},
+                            },
+                        }
+                    ],
+                }
+            }
+        )
+    )
+
+    assert config.logging is not None
+    assert config.logging.file.enabled is False
+    assert config.warnings == ()
+
+
+def test_load_config_still_raises_on_invalid_settings_with_warnings(
+    monkeypatch: pytest.MonkeyPatch,
+    write_config: Callable[[dict[str, object] | None], Path],
+) -> None:
+    """Keep rejecting invalid settings even when warnings would also apply."""
+    monkeypatch.setenv("UPSTREAM_API_KEY", "secret-value")
+    with pytest.raises(ConfigError, match="port"):
+        load_config(
+            write_config(
+                {
+                    "listener": {"port": 0, "mode": "passthrough"},
+                    "timeout": 5,
+                }
+            )
         )

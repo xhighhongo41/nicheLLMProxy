@@ -28,13 +28,13 @@ export NICHELLM_LANGUAGE=ja  # optional; English is the default
 docker compose up --build -d
 ```
 
-The bundled `docker-compose.yml` requires `UPSTREAM_API_KEY` to be set even when `api_key_env` names a different variable (for example `XAI_API_KEY`); set any value for it, or adjust the `environment` entries to your configuration. In `featherless` mode no API key variable is needed at all; set any value for `UPSTREAM_API_KEY`, or adjust the `environment` entries. The Compose file includes a healthcheck that probes `GET /health` every 30 seconds; `docker compose ps` shows the service as `healthy` once it is ready. Check the proxy:
+The bundled `docker-compose.yml` requires `UPSTREAM_API_KEY` to be set even when `api_key_env` names a different variable (for example `XAI_API_KEY`); set any value for it, or adjust the `environment` entries to your configuration. In `featherless` mode no API key variable is needed at all; set any value for `UPSTREAM_API_KEY`, or adjust the `environment` entries. The Compose file includes a healthcheck that probes `GET /health` every 30 seconds, reading `listener.port` from the mounted `config.json` so it stays accurate if you change the port; `docker compose ps` shows the service as `healthy` once it is ready. Check the proxy:
 
 ```bash
 curl http://127.0.0.1:8000/health
 ```
 
-Compose mounts `config.json` read-only at `/app/config/config.json` and publishes the service only on `127.0.0.1:8000`; the proxy has no authentication, so keep this binding on trusted networks. To let other machines on your network connect, change the host-side binding in the `ports` mapping (for example `"8000:8000"`), only on networks you trust. Stop the service with:
+Compose mounts `config.json` read-only at `/app/config/config.json` and publishes the service only on `127.0.0.1:8000` by default; both sides of the `ports` mapping follow the `NICHELLM_PORT` environment variable (default 8000). The proxy has no authentication, so keep this binding on trusted networks. To let other machines on your network connect, change the host-side binding in the `ports` mapping (for example `"8000:8000"`), only on networks you trust. Stop the service with:
 
 ```bash
 docker compose down
@@ -54,7 +54,7 @@ To delete retained logs deliberately, stop the service and remove the named volu
 Published multi-platform (`linux/amd64`, `linux/arm64`) images are available at `xhighhongo41/nichellm-proxy`. Use an exact version tag in production; rolling tags such as `1.3` and `latest` also exist.
 
 ```bash
-docker pull xhighhongo41/nichellm-proxy:1.3.1
+docker pull xhighhongo41/nichellm-proxy:1.3.2
 ```
 
 The image contains no API key or configuration JSON. Create a `.env` file next to the Compose file with the API key variables your configuration uses (see [API key management](#api-key-management)), and put a `config.json` (start from the full example in [Configuration](#configuration)) and this Compose file in a working directory:
@@ -62,9 +62,9 @@ The image contains no API key or configuration JSON. Create a `.env` file next t
 ```yaml
 services:
   nichellm-proxy:
-    image: xhighhongo41/nichellm-proxy:1.3.1
+    image: xhighhongo41/nichellm-proxy:1.3.2
     ports:
-      - "127.0.0.1:8000:8000"
+      - "127.0.0.1:${NICHELLM_PORT:-8000}:${NICHELLM_PORT:-8000}"
     environment:
       NICHELLM_CONFIG_PATH: /app/config/config.json
       NICHELLM_LANGUAGE: ${NICHELLM_LANGUAGE:-en}
@@ -87,7 +87,7 @@ docker compose up -d
 curl http://127.0.0.1:8000/health
 ```
 
-This minimal example omits the healthcheck included in the bundled `docker-compose.yml`; the `curl` above can fail while the container is still starting — retry after a few seconds. The API key variables above are optional references; the proxy verifies at startup that the variable named by `api_key_env` in your `config.json` is actually set. The named log volume behaves the same as in the Compose-from-source setup, including removal with `docker compose down -v`.
+This minimal example omits the healthcheck included in the bundled `docker-compose.yml`; the `curl` above can fail while the container is still starting — retry after a few seconds. The `ports` mapping follows the `NICHELLM_PORT` environment variable (default 8000) on both sides, so set it to the same value as `listener.port` if you change the port. The API key variables above are optional references; the proxy verifies at startup that the variable named by `api_key_env` in your `config.json` is actually set. The named log volume behaves the same as in the Compose-from-source setup, including removal with `docker compose down -v`.
 
 ### Run locally with uv
 
@@ -142,7 +142,7 @@ The `Authorization` header is optional: the proxy always replaces it with the co
 
 ### Updating an existing installation
 
-The configuration JSON format is unchanged in v1.3.1; existing `config.json` files keep working. v1.3.1 allows `timeouts.read_seconds: null` to disable the upstream read timeout; see [Timeouts](#timeouts).
+The configuration JSON format is unchanged in v1.3.2; existing `config.json` files keep working. v1.3.2 warns about and ignores mode-mismatched settings instead of rejecting them at startup; see [Modes and features](#modes-and-features).
 
 Docker Compose from source:
 
@@ -151,7 +151,7 @@ git pull
 docker compose up --build -d
 ```
 
-Published Docker Hub image: update the image tag in your Compose file (for example `xhighhongo41/nichellm-proxy:1.3.1`), then:
+Published Docker Hub image: update the image tag in your Compose file (for example `xhighhongo41/nichellm-proxy:1.3.2`), then:
 
 ```bash
 docker compose pull
@@ -232,9 +232,9 @@ Common keys:
 |`timeouts.connect_seconds`|positive number|10.0|
 |`timeouts.read_seconds`|positive number or `null`|120.0|
 
-The `timeouts` object itself is optional, and every key with a default value can be omitted. If you change `listener.port`, also update the Compose `ports` mapping so the container-side port matches `listener.port` (for example `"127.0.0.1:8001:8001"`); the healthcheck in the bundled `docker-compose.yml` probes container port 8000, so it stays accurate only while `listener.port` is 8000.
+The `timeouts` object itself is optional, and every key with a default value can be omitted. If you change `listener.port`, also set the `NICHELLM_PORT` environment variable to the same value when starting Compose (for example `NICHELLM_PORT=8001 docker compose up`) so the published port matches; the healthcheck in the bundled `docker-compose.yml` reads `listener.port` from the mounted `config.json`, so it stays accurate for any port.
 
-Mode-specific keys (`listener.grok_image`, `listener.gemini_image`, `listener.featherless`) and the optional `listener.features` logging feature are described in [Modes and features](#modes-and-features). Unknown keys inside the mode-specific objects, invalid values, and mode-mismatched settings are rejected as startup configuration errors. Outside the mode-specific objects and the logging feature settings, unknown keys are silently ignored — check the key spelling (for example `timouts` instead of `timeouts`) if a setting seems to have no effect. Complete mode examples are available as `config.grok-image.example.json`, `config.gemini-image.example.json`, and `config.featherless.example.json`.
+Mode-specific keys (`listener.grok_image`, `listener.gemini_image`, `listener.featherless`) and the optional `listener.features` logging feature are described in [Modes and features](#modes-and-features). Unknown keys inside the mode-specific objects and invalid values are rejected as startup configuration errors. A mode-specific block that does not belong to the configured `listener.mode`, unknown top-level keys, and `logging.file` settings ignored while `logging.file.enabled` is `false` are reported as startup warnings and ignored — the proxy keeps starting and prints each warning to the standard error output; check the key spelling (for example `timouts` instead of `timeouts`) if a setting seems to have no effect. Complete mode examples are available as `config.grok-image.example.json`, `config.gemini-image.example.json`, and `config.featherless.example.json`.
 
 ### Environment variables
 
@@ -270,7 +270,7 @@ For background responses, batches, and fine-tuning jobs, create the job and poll
 
 ## Modes and features
 
-`listener.mode` accepts `passthrough`, `grok-image`, `gemini-image`, or `featherless`. `GET /health` works in every mode. Upstream errors are passed through with their status and body unchanged, and upstream connection and read failures return the same 502/504 responses as `passthrough`.
+`listener.mode` accepts `passthrough`, `grok-image`, `gemini-image`, or `featherless`. `GET /health` works in every mode and reports the proxy version, the listener mode, and the enabled feature names. At startup, the proxy prints the same information as a single line to the standard output, and prints each configuration warning to the standard error output. Upstream errors are passed through with their status and body unchanged, and upstream connection and read failures return the same 502/504 responses as `passthrough`.
 
 |Mode / feature|Function|Settings|
 |---|---|---|
@@ -562,7 +562,7 @@ Representative startup errors and what to check:
 
 - `Configuration file was not found: {path}` — the configuration JSON is missing at that path. For host execution, check `NICHELLM_CONFIG_PATH`; in Docker, check the `config.json` mount.
 - `Upstream API key environment variable '{api_key_env}' is not set.` — the variable named by `api_key_env` is not set. Export it in your shell, or set it in the `.env` file next to the Compose file.
-- A setting seems to have no effect — unknown keys outside the mode-specific objects and the logging feature settings are silently ignored. Check the key spelling (for example `timouts` instead of `timeouts`).
+- A setting seems to have no effect — unknown top-level keys, a mode-specific block that does not belong to the configured `listener.mode`, and `logging.file` settings while `logging.file.enabled` is `false` are ignored with a startup warning on the standard error output. Check the warning lines shown at startup and the key spelling (for example `timouts` instead of `timeouts`).
 
 Error messages the proxy generates are localized with `NICHELLM_LANGUAGE` (English by default, Japanese with `ja`).
 

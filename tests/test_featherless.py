@@ -14,7 +14,7 @@ import httpx
 import pytest
 from fastapi import Request
 
-from niche_llm_proxy.app import _acquire_or_disconnect, create_app
+from niche_llm_proxy.app import PROXY_VERSION, _acquire_or_disconnect, create_app
 from niche_llm_proxy.config import FeatherlessConfig, ProxyConfig, load_config
 from niche_llm_proxy.featherless import (
     ConcurrencyGate,
@@ -1478,8 +1478,8 @@ class TestFeatherlessApp:
         assert upstream.completions == [(KIMI, AUTH1), (KIMI, AUTH1)]
 
     @pytest.mark.anyio
-    async def test_health_unchanged(self, make_app: Any) -> None:
-        """GET /health keeps its existing contract."""
+    async def test_health_reports_mode_and_features(self, make_app: Any) -> None:
+        """GET /health reports the version, mode, and enabled features."""
 
         app = make_app(_FakeFeatherlessUpstream())
 
@@ -1487,7 +1487,12 @@ class TestFeatherlessApp:
             response = await client.get("/health")
 
         assert response.status_code == 200
-        assert response.json() == {"status": "ok"}
+        assert response.json() == {
+            "status": "ok",
+            "version": PROXY_VERSION,
+            "mode": "featherless",
+            "features": [],
+        }
 
     @pytest.mark.anyio
     async def test_other_get_path_passes_through(self, make_app: Any) -> None:

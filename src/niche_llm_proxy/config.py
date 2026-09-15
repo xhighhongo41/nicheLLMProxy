@@ -149,6 +149,7 @@ class ProxyConfig:
     listener: ListenerConfig
     upstream: UpstreamConfig
     timeouts: TimeoutConfig
+    warnings: tuple[str, ...] = ()
 
     @property
     def logging(self) -> LoggingFeatureConfig | None:
@@ -195,6 +196,16 @@ def load_config(
     path = Path(config_path) if config_path is not None else get_config_path(environment)
     raw_config = _read_json_object(path)
 
+    warnings: list[str] = []
+    unknown_top_level_keys = set(raw_config) - {"listener", "upstream", "timeouts"}
+    if unknown_top_level_keys:
+        warnings.append(
+            translate(
+                "Unknown top-level configuration keys were ignored: {keys}.",
+                keys=", ".join(sorted(unknown_top_level_keys)),
+            )
+        )
+
     listener_data = _required_object(raw_config, "listener")
     upstream_data = _required_object(raw_config, "upstream")
     timeout_data = _optional_object(raw_config, "timeouts")
@@ -204,10 +215,10 @@ def load_config(
     listener = ListenerConfig(
         port=port,
         mode=mode,
-        grok_image=_grok_image(listener_data, mode),
-        gemini_image=_gemini_image(listener_data, mode),
-        featherless=_featherless(listener_data, mode),
-        features=_features(listener_data),
+        grok_image=_grok_image(listener_data, mode, warnings),
+        gemini_image=_gemini_image(listener_data, mode, warnings),
+        featherless=_featherless(listener_data, mode, warnings),
+        features=_features(listener_data, warnings),
     )
     if mode == "featherless":
         # The featherless mode relays the client's own Authorization header and
@@ -251,7 +262,12 @@ def load_config(
             DEFAULT_READ_TIMEOUT_SECONDS,
         ),
     )
-    return ProxyConfig(listener=listener, upstream=upstream, timeouts=timeouts)
+    return ProxyConfig(
+        listener=listener,
+        upstream=upstream,
+        timeouts=timeouts,
+        warnings=tuple(warnings),
+    )
 
 
 def _read_json_object(path: Path) -> Mapping[str, Any]:
@@ -321,17 +337,23 @@ def _mode(listener: Mapping[str, Any]) -> str:
     return mode
 
 
-def _grok_image(listener: Mapping[str, Any], mode: str) -> GrokImageConfig | None:
+def _grok_image(
+    listener: Mapping[str, Any],
+    mode: str,
+    warnings: list[str],
+) -> GrokImageConfig | None:
     """Validate the optional grok_image settings for the grok-image listener."""
 
     if "grok_image" not in listener:
         return None
     if mode != "grok-image":
-        raise ConfigError(
+        warnings.append(
             translate(
-                "listener.grok_image is only supported in 'grok-image' mode."
+                "listener.grok_image is ignored because "
+                "listener.mode is not 'grok-image'."
             )
         )
+        return None
     value = _required_object(listener, "grok_image")
     _reject_unknown_keys(
         value,
@@ -375,17 +397,23 @@ def _grok_image_resolution(config: Mapping[str, Any]) -> str | None:
     return value
 
 
-def _gemini_image(listener: Mapping[str, Any], mode: str) -> GeminiImageConfig | None:
+def _gemini_image(
+    listener: Mapping[str, Any],
+    mode: str,
+    warnings: list[str],
+) -> GeminiImageConfig | None:
     """Validate the optional gemini_image settings for the gemini-image listener."""
 
     if "gemini_image" not in listener:
         return None
     if mode != "gemini-image":
-        raise ConfigError(
+        warnings.append(
             translate(
-                "listener.gemini_image is only supported in 'gemini-image' mode."
+                "listener.gemini_image is ignored because "
+                "listener.mode is not 'gemini-image'."
             )
         )
+        return None
     value = _required_object(listener, "gemini_image")
     _reject_unknown_keys(
         value,
@@ -414,17 +442,23 @@ def _gemini_image_string(config: Mapping[str, Any], key: str) -> str | None:
     return value
 
 
-def _featherless(listener: Mapping[str, Any], mode: str) -> FeatherlessConfig | None:
+def _featherless(
+    listener: Mapping[str, Any],
+    mode: str,
+    warnings: list[str],
+) -> FeatherlessConfig | None:
     """Validate the mandatory featherless settings for the featherless listener."""
 
     if "featherless" not in listener:
         return None
     if mode != "featherless":
-        raise ConfigError(
+        warnings.append(
             translate(
-                "listener.featherless is only supported in 'featherless' mode."
+                "listener.featherless is ignored because "
+                "listener.mode is not 'featherless'."
             )
         )
+        return None
     value = _required_object(listener, "featherless")
     _reject_unknown_keys(
         value,
@@ -527,7 +561,10 @@ def _featherless_number(
     return float(value)
 
 
-def _features(listener: Mapping[str, Any]) -> tuple[LoggingFeatureConfig, ...]:
+def _features(
+    listener: Mapping[str, Any],
+    warnings: list[str],
+) -> tuple[LoggingFeatureConfig, ...]:
     """Validate listener features supported by this release."""
 
     value = listener.get("features", [])
@@ -548,11 +585,14 @@ def _features(listener: Mapping[str, Any]) -> tuple[LoggingFeatureConfig, ...]:
         config = item.get("config")
         if not isinstance(config, dict):
             raise ConfigError(translate("logging feature config must be an object."))
-        features.append(_logging_feature(config))
+        features.append(_logging_feature(config, warnings))
     return tuple(features)
 
 
-def _logging_feature(config: Mapping[str, Any]) -> LoggingFeatureConfig:
+def _logging_feature(
+    config: Mapping[str, Any],
+    warnings: list[str],
+) -> LoggingFeatureConfig:
     """Validate the structured protocol logging feature configuration."""
 
     _reject_unknown_keys(
@@ -561,7 +601,7 @@ def _logging_feature(config: Mapping[str, Any]) -> LoggingFeatureConfig:
         "logging config",
     )
     stdout = _boolean(config, "stdout", True)
-    file_config = _logging_file(_optional_object(config, "file"))
+    file_config = _logging_file(_optional_object(config, "file"), warnings)
     capture = _logging_capture(_optional_object(config, "capture"))
     redaction = _logging_redaction(_optional_object(config, "redaction"))
     if not stdout and not file_config.enabled:
@@ -574,7 +614,10 @@ def _logging_feature(config: Mapping[str, Any]) -> LoggingFeatureConfig:
     )
 
 
-def _logging_file(config: Mapping[str, Any]) -> LoggingFileConfig:
+def _logging_file(
+    config: Mapping[str, Any],
+    warnings: list[str],
+) -> LoggingFileConfig:
     """Validate optional rotating-file output settings."""
 
     _reject_unknown_keys(
@@ -584,6 +627,13 @@ def _logging_file(config: Mapping[str, Any]) -> LoggingFileConfig:
     )
     enabled = _boolean(config, "enabled", False)
     if not enabled:
+        if any(key in config for key in ("path", "max_bytes", "backup_count")):
+            warnings.append(
+                translate(
+                    "logging.file settings were ignored because "
+                    "logging.file.enabled is false."
+                )
+            )
         return LoggingFileConfig(enabled=False)
 
     raw_path = _non_empty_string(config, "path")
