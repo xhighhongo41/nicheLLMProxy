@@ -54,7 +54,7 @@ To delete retained logs deliberately, stop the service and remove the named volu
 Published multi-platform (`linux/amd64`, `linux/arm64`) images are available at `xhighhongo41/nichellm-proxy`. Use an exact version tag in production; rolling tags such as `1.3` and `latest` also exist.
 
 ```bash
-docker pull xhighhongo41/nichellm-proxy:1.3.2
+docker pull xhighhongo41/nichellm-proxy:1.4.0
 ```
 
 The image contains no API key or configuration file. Create a `.env` file next to the Compose file with the API key variables your configuration uses (see [API key management](#api-key-management)), and put a `config.jsonc` (start from the full example in [Configuration](#configuration)) and this Compose file in a working directory:
@@ -62,7 +62,7 @@ The image contains no API key or configuration file. Create a `.env` file next t
 ```yaml
 services:
   nichellm-proxy:
-    image: xhighhongo41/nichellm-proxy:1.3.2
+    image: xhighhongo41/nichellm-proxy:1.4.0
     # Add one mapping per listener port defined in config.jsonc.
     ports:
       - "127.0.0.1:8000:8000"
@@ -152,7 +152,7 @@ git pull
 docker compose up --build -d
 ```
 
-Published Docker Hub image: update the image tag in your Compose file (for example `xhighhongo41/nichellm-proxy:1.3.2`), then:
+Published Docker Hub image: update the image tag in your Compose file (for example `xhighhongo41/nichellm-proxy:1.4.0`), then:
 
 ```bash
 docker compose pull

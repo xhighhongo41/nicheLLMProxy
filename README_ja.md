@@ -54,7 +54,7 @@ docker compose exec nichellm-proxy sh -c 'ls -lh /var/log/nichellm'
 公開済みのmulti-platform(`linux/amd64`、`linux/arm64`)イメージは`xhighhongo41/nichellm-proxy`で入手できます。本番では正確なバージョンタグを利用してください。`1.3`や`latest`のようなローリングタグも存在します。
 
 ```bash
-docker pull xhighhongo41/nichellm-proxy:1.3.2
+docker pull xhighhongo41/nichellm-proxy:1.4.0
 ```
 
 イメージにはAPIキーも設定ファイルも含まれません。Composeファイルと同じ場所に、設定で使うAPIキー変数を記した`.env`ファイルを作成し([APIキー管理](#apiキー管理)を参照)、作業ディレクトリに`config.jsonc`([設定](#設定)の完全な例から始めてください)と次のComposeファイルを配置します。
@@ -62,7 +62,7 @@ docker pull xhighhongo41/nichellm-proxy:1.3.2
 ```yaml
 services:
   nichellm-proxy:
-    image: xhighhongo41/nichellm-proxy:1.3.2
+    image: xhighhongo41/nichellm-proxy:1.4.0
     # config.jsoncで定義したリスナーポートごとに1つのマッピングを追加。
     ports:
       - "127.0.0.1:8000:8000"
@@ -152,7 +152,7 @@ git pull
 docker compose up --build -d
 ```
 
-公開Docker Hubイメージで実行している場合: Composeファイル内のイメージタグを更新し(例: `xhighhongo41/nichellm-proxy:1.3.2`)、次を実行します。
+公開Docker Hubイメージで実行している場合: Composeファイル内のイメージタグを更新し(例: `xhighhongo41/nichellm-proxy:1.4.0`)、次を実行します。
 
 ```bash
 docker compose pull
