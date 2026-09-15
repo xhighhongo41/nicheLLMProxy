@@ -18,7 +18,7 @@ import httpx
 from fastapi import Request
 from fastapi.responses import JSONResponse, Response
 
-from niche_llm_proxy.config import FeatherlessConfig, ProxyConfig
+from niche_llm_proxy.config import FeatherlessConfig, ListenerRuntimeConfig
 from niche_llm_proxy.i18n import translate
 from niche_llm_proxy.image_relay import TransformError
 from niche_llm_proxy.logging_feature import ExchangeLog
@@ -782,7 +782,7 @@ class FeatherlessRuntime:
 
     def __init__(
         self,
-        config: ProxyConfig,
+        config: ListenerRuntimeConfig,
         upstream_transport: httpx.AsyncBaseTransport | None = None,
     ) -> None:
         settings = config.listener.featherless

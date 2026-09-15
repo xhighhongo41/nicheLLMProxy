@@ -1,0 +1,77 @@
+{
+  // Multi-listener configuration for nicheLLM Proxy (v1.4 schema).
+  // Every listener is independent: it binds its own port and carries its own
+  // upstream, timeouts, and features. Ports must be unique; several listeners
+  // may share one upstream provider by repeating the same upstream settings.
+  "listeners": [
+    {
+      // Plain OpenAI-compatible passthrough on port 8000.
+      "port": 8000,
+      "mode": "passthrough",
+      "upstream": {
+        "base_url": "https://api.openai.com",
+        "api_key_env": "UPSTREAM_API_KEY"
+      },
+      "timeouts": {
+        "connect_seconds": 10,
+        "read_seconds": 120
+      }
+    },
+    {
+      // xAI Grok image generation on port 8001.
+      "port": 8001,
+      "mode": "grok-image",
+      "grok_image": {
+        "default_model": "grok-imagine-image-2.0",
+        "aspect_ratio": "1:1",
+        "resolution": "1k"
+      },
+      "upstream": {
+        "base_url": "https://api.x.ai",
+        "api_key_env": "XAI_API_KEY"
+      },
+      "timeouts": {
+        "connect_seconds": 10,
+        "read_seconds": 120
+      }
+    },
+    {
+      // Google Gemini image generation on port 8002.
+      "port": 8002,
+      "mode": "gemini-image",
+      "gemini_image": {
+        "default_model": "gemini-3-pro-image-preview",
+        "aspect_ratio": "1:1"
+      },
+      "upstream": {
+        "base_url": "https://generativelanguage.googleapis.com",
+        "api_key_env": "GEMINI_API_KEY"
+      },
+      "timeouts": {
+        "connect_seconds": 10,
+        "read_seconds": 120
+      }
+    },
+    {
+      // featherless.ai relay on port 8003. The client's Authorization header
+      // is relayed as-is, so no api_key_env appears on this listener.
+      "port": 8003,
+      "mode": "featherless",
+      "featherless": {
+        "model_whitelist": [
+          "moonshotai/Kimi-K2.6",
+          "Qwen/Qwen3-Coder-480B"
+        ],
+        "max_queue_wait_seconds": 60,
+        "cache_ttl_seconds": 300
+      },
+      "upstream": {
+        "base_url": "https://api.featherless.ai"
+      },
+      "timeouts": {
+        "connect_seconds": 10,
+        "read_seconds": 120
+      }
+    }
+  ]
+}

@@ -13,8 +13,11 @@ from urllib.parse import urlparse
 
 from niche_llm_proxy.i18n import translate
 
-DEFAULT_CONFIG_PATH = Path("/app/config/config.json")
-"""Default configuration file path when no environment override is set."""
+DEFAULT_CONFIG_PATHS = (
+    Path("/app/config/config.jsonc"),
+    Path("/app/config/config.json"),
+)
+"""Default configuration file candidates in resolution order."""
 
 DEFAULT_CONNECT_TIMEOUT_SECONDS = 10.0
 """Default upstream connection timeout in seconds."""
@@ -143,8 +146,8 @@ class LoggingFeatureConfig:
 
 
 @dataclass(frozen=True)
-class ProxyConfig:
-    """Validated startup configuration for nicheLLM Proxy."""
+class ListenerRuntimeConfig:
+    """Validated startup configuration for a single listener."""
 
     listener: ListenerConfig
     upstream: UpstreamConfig
@@ -158,6 +161,14 @@ class ProxyConfig:
         return self.listener.features[0] if self.listener.features else None
 
 
+@dataclass(frozen=True)
+class ProxyConfig:
+    """Validated startup configuration for every listener of the proxy."""
+
+    listeners: tuple[ListenerRuntimeConfig, ...]
+    warnings: tuple[str, ...] = ()
+
+
 def get_config_path(environ: Mapping[str, str] | None = None) -> Path:
     """Return the configuration file path after applying an environment override.
 
@@ -165,12 +176,19 @@ def get_config_path(environ: Mapping[str, str] | None = None) -> Path:
         environ: Environment variables to read. Uses the process environment by default.
 
     Returns:
-        `NICHELLM_CONFIG_PATH` or the default configuration file path.
+        `NICHELLM_CONFIG_PATH` or the first existing default configuration file.
+        When no default file exists, the preferred JSONC default path is returned
+        so error messages name it.
     """
 
     environment = os.environ if environ is None else environ
     configured_path = environment.get("NICHELLM_CONFIG_PATH")
-    return Path(configured_path) if configured_path else DEFAULT_CONFIG_PATH
+    if configured_path:
+        return Path(configured_path)
+    for default_path in DEFAULT_CONFIG_PATHS:
+        if default_path.is_file():
+            return default_path
+    return DEFAULT_CONFIG_PATHS[0]
 
 
 def load_config(
@@ -189,27 +207,80 @@ def load_config(
         ConfigError: If the configuration file, settings, or API key are invalid.
 
     Returns:
-        Validated configuration ready for startup.
+        Validated configuration with one runtime entry per configured listener.
     """
 
     environment = os.environ if environ is None else environ
     path = Path(config_path) if config_path is not None else get_config_path(environment)
     raw_config = _read_json_object(path)
 
-    warnings: list[str] = []
-    unknown_top_level_keys = set(raw_config) - {"listener", "upstream", "timeouts"}
+    if "listeners" not in raw_config:
+        raise ConfigError(
+            translate(
+                "Since v1.4 the configuration requires a top-level 'listeners' "
+                "array. See the README for the migration guide."
+            )
+        )
+
+    listeners_data = raw_config["listeners"]
+    if not isinstance(listeners_data, list) or not listeners_data:
+        raise ConfigError(
+            translate("'listeners' must be a non-empty array of listener objects.")
+        )
+    if any(not isinstance(item, dict) for item in listeners_data):
+        raise ConfigError(translate("Each 'listeners' item must be an object."))
+
+    listeners = tuple(_listener_runtime(item, environment) for item in listeners_data)
+
+    ports = [runtime.listener.port for runtime in listeners]
+    duplicate_ports = sorted({port for port in ports if ports.count(port) > 1})
+    if duplicate_ports:
+        raise ConfigError(
+            translate(
+                "'listeners' contains duplicate ports: {ports}.",
+                ports=", ".join(str(port) for port in duplicate_ports),
+            )
+        )
+
+    global_warnings: list[str] = []
+    log_file_paths = [
+        str(runtime.logging.file.path)
+        for runtime in listeners
+        if runtime.logging is not None and runtime.logging.file.enabled
+    ]
+    duplicate_log_paths = sorted(
+        {log_path for log_path in log_file_paths if log_file_paths.count(log_path) > 1}
+    )
+    if duplicate_log_paths:
+        global_warnings.append(
+            translate(
+                "Multiple listeners write protocol logs to the same file: {paths}.",
+                paths=", ".join(duplicate_log_paths),
+            )
+        )
+
+    unknown_top_level_keys = set(raw_config) - {"listeners"}
     if unknown_top_level_keys:
-        warnings.append(
+        global_warnings.append(
             translate(
                 "Unknown top-level configuration keys were ignored: {keys}.",
                 keys=", ".join(sorted(unknown_top_level_keys)),
             )
         )
 
-    listener_data = _required_object(raw_config, "listener")
-    upstream_data = _required_object(raw_config, "upstream")
-    timeout_data = _optional_object(raw_config, "timeouts")
+    return ProxyConfig(
+        listeners=listeners,
+        warnings=tuple(global_warnings),
+    )
 
+
+def _listener_runtime(
+    listener_data: Mapping[str, Any],
+    environment: Mapping[str, str],
+) -> ListenerRuntimeConfig:
+    """Validate one listener entry and resolve its upstream key."""
+
+    warnings: list[str] = []
     port = _port(listener_data)
     mode = _mode(listener_data)
     listener = ListenerConfig(
@@ -220,6 +291,7 @@ def load_config(
         featherless=_featherless(listener_data, mode, warnings),
         features=_features(listener_data, warnings),
     )
+    upstream_data = _required_object(listener_data, "upstream")
     if mode == "featherless":
         # The featherless mode relays the client's own Authorization header and
         # must not hold an upstream key.
@@ -250,6 +322,7 @@ def load_config(
             api_key_env=api_key_env,
             api_key=api_key,
         )
+    timeout_data = _optional_object(listener_data, "timeouts")
     timeouts = TimeoutConfig(
         connect_seconds=_positive_number(
             timeout_data,
@@ -262,7 +335,7 @@ def load_config(
             DEFAULT_READ_TIMEOUT_SECONDS,
         ),
     )
-    return ProxyConfig(
+    return ListenerRuntimeConfig(
         listener=listener,
         upstream=upstream,
         timeouts=timeouts,
@@ -271,11 +344,11 @@ def load_config(
 
 
 def _read_json_object(path: Path) -> Mapping[str, Any]:
-    """Read a configuration file and return its top-level JSON object."""
+    """Read a JSONC configuration file and return its top-level JSON object."""
 
     try:
         with path.open(encoding="utf-8") as config_file:
-            value = json.load(config_file)
+            value = json.loads(_strip_jsonc_comments(config_file.read()))
     except FileNotFoundError as error:
         raise ConfigError(
             translate("Configuration file was not found: {path}", path=path)
@@ -286,6 +359,65 @@ def _read_json_object(path: Path) -> Mapping[str, Any]:
     if not isinstance(value, dict):
         raise ConfigError(translate("Top-level configuration JSON must be an object."))
     return value
+
+
+def _strip_jsonc_comments(text: str) -> str:
+    """Remove // and /* */ comments outside JSON string literals.
+
+    Newlines are preserved and other comment characters become spaces so that
+    JSON error positions keep pointing at the original file.
+    """
+
+    output: list[str] = []
+    state = "normal"
+    index = 0
+    length = len(text)
+    while index < length:
+        character = text[index]
+        if state == "normal":
+            if character == '"':
+                state = "string"
+                output.append(character)
+                index += 1
+            elif text[index : index + 2] == "//":
+                state = "line_comment"
+                index += 2
+            elif text[index : index + 2] == "/*":
+                state = "block_comment"
+                index += 2
+            else:
+                output.append(character)
+                index += 1
+        elif state == "string":
+            if character == "\\":
+                # Copy escape sequences verbatim so \" and \\ never end a string.
+                if index + 1 < length:
+                    output.append(character)
+                    output.append(text[index + 1])
+                    index += 2
+                else:
+                    output.append(character)
+                    index += 1
+            else:
+                if character == '"':
+                    state = "normal"
+                output.append(character)
+                index += 1
+        elif state == "line_comment":
+            if character == "\n":
+                state = "normal"
+                output.append(character)
+            index += 1
+        else:
+            if text[index : index + 2] == "*/":
+                state = "normal"
+                output.append(" ")
+                index += 2
+            else:
+                if character == "\n":
+                    output.append(character)
+                index += 1
+    return "".join(output)
 
 
 def _required_object(config: Mapping[str, Any], key: str) -> Mapping[str, Any]:

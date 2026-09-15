@@ -3,15 +3,17 @@ services:
     build:
       context: .
     ports:
-      - "127.0.0.1:${NICHELLM_PORT:-8000}:${NICHELLM_PORT:-8000}"
+      # Publish one entry per listener port defined in config.jsonc.
+      # Add extra mappings (e.g. "127.0.0.1:8001:8001") for multi-listener setups.
+      - "127.0.0.1:8000:8000"
     environment:
-      NICHELLM_CONFIG_PATH: /app/config/config.json
+      NICHELLM_CONFIG_PATH: /app/config/config.jsonc
       NICHELLM_LANGUAGE: ${NICHELLM_LANGUAGE:-en}
       UPSTREAM_API_KEY: ${UPSTREAM_API_KEY:?UPSTREAM_API_KEY must be set}
       XAI_API_KEY: ${XAI_API_KEY:-}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
     volumes:
-      - ./config.json:/app/config/config.json:ro
+      - ./config.jsonc:/app/config/config.jsonc:ro
       - nichellm-proxy-logs:/var/log/nichellm
     healthcheck:
       test:
@@ -19,9 +21,9 @@ services:
         - python
         - -c
         - >-
-          import json,urllib.request;
-          port=json.load(open('/app/config/config.json'))['listener']['port'];
-          urllib.request.urlopen(f'http://127.0.0.1:{port}/health', timeout=2).read()
+          import urllib.request;
+          from niche_llm_proxy.config import load_config;
+          [urllib.request.urlopen(f'http://127.0.0.1:{l.listener.port}/health', timeout=2).read() for l in load_config().listeners]
       interval: 30s
       timeout: 3s
       retries: 3

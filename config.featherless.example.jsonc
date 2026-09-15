@@ -1,0 +1,28 @@
+{
+  // Configuration for nicheLLM Proxy (v1.4 schema), featherless.ai mode.
+  // The proxy relays the client's Authorization header as-is, so no
+  // api_key_env is configured for this listener.
+  "listeners": [
+    {
+      "port": 8000,
+      "mode": "featherless",
+      "featherless": {
+        // Requests for models outside this whitelist are rejected locally.
+        "model_whitelist": [
+          "moonshotai/Kimi-K2.6",
+          "Qwen/Qwen3-Coder-480B"
+        ],
+        "max_queue_wait_seconds": 60,
+        "cache_ttl_seconds": 300
+      },
+      "upstream": {
+        // Featherless mode relays the client's key; api_key_env is rejected.
+        "base_url": "https://api.featherless.ai"
+      },
+      "timeouts": {
+        "connect_seconds": 10,
+        "read_seconds": 120
+      }
+    }
+  ]
+}

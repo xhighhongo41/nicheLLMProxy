@@ -136,8 +136,9 @@ class _BodyCapture:
 class LoggingRuntime:
     """Own the asynchronous handlers for a configured logging feature."""
 
-    def __init__(self, config: LoggingFeatureConfig) -> None:
+    def __init__(self, config: LoggingFeatureConfig, listener_port: int) -> None:
         self.config = config
+        self.listener_port = listener_port
         self._queue: queue.Queue[logging.LogRecord] = queue.Queue(maxsize=10_000)
         self._logger = logging.getLogger(f"niche_llm_proxy.protocol.{id(self)}")
         self._logger.setLevel(logging.INFO)
@@ -253,6 +254,7 @@ class ExchangeLog:
             "timestamp": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
             "level": "INFO" if event not in {"exchange_failed", "exchange_cancelled"} else "WARNING",
             "event": event,
+            "listener_port": self.runtime.listener_port,
             "request_id": self.request_id,
             "method": self.method,
             "path": self.path,

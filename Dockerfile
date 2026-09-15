@@ -7,8 +7,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PATH="/opt/venv/bin:$PATH" \
     UV_LINK_MODE=copy \
     UV_NO_CACHE=1 \
-    UV_PROJECT_ENVIRONMENT=/opt/venv \
-    NICHELLM_CONFIG_PATH=/app/config/config.json
+    UV_PROJECT_ENVIRONMENT=/opt/venv
 
 WORKDIR /app
 
@@ -25,7 +24,5 @@ RUN mkdir -p /var/log/nichellm \
     && chown -R nichellm:nichellm /var/log/nichellm
 
 USER nichellm
-
-EXPOSE 8000
 
 CMD ["niche-llm-proxy"]

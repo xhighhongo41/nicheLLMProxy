@@ -12,7 +12,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import Response, StreamingResponse
 
 from niche_llm_proxy.app import create_app
-from niche_llm_proxy.config import ProxyConfig, load_config
+from niche_llm_proxy.config import ListenerRuntimeConfig, load_config
 
 
 class _BytesStream(httpx.AsyncByteStream):
@@ -32,42 +32,50 @@ def _logging_config(
     write_config: Callable[[dict[str, object] | None], Path],
     log_path: Path,
     *,
+    port: int = 8000,
     bodies: bool = True,
     max_bytes: int = 1_000_000,
     backup_count: int = 2,
-) -> ProxyConfig:
+) -> ListenerRuntimeConfig:
     """Create one file-only logging config suitable for deterministic assertions."""
 
     return load_config(
         write_config(
             {
-                "listener": {
-                    "port": 8000,
-                    "mode": "passthrough",
-                    "features": [
-                        {
-                            "name": "logging",
-                            "config": {
-                                "stdout": False,
-                                "file": {
-                                    "enabled": True,
-                                    "path": str(log_path),
-                                    "max_bytes": max_bytes,
-                                    "backup_count": backup_count,
+                "listeners": [
+                    {
+                        "port": port,
+                        "mode": "passthrough",
+                        "upstream": {
+                            "base_url": "https://upstream.example.test",
+                            "api_key_env": "UPSTREAM_API_KEY",
+                        },
+                        "timeouts": {"connect_seconds": 1, "read_seconds": 2},
+                        "features": [
+                            {
+                                "name": "logging",
+                                "config": {
+                                    "stdout": False,
+                                    "file": {
+                                        "enabled": True,
+                                        "path": str(log_path),
+                                        "max_bytes": max_bytes,
+                                        "backup_count": backup_count,
+                                    },
+                                    "capture": {"bodies": bodies, "max_body_bytes": 100},
+                                    "redaction": {
+                                        "additional_header_names": ["X-Customer-Secret"],
+                                        "additional_query_parameter_names": ["private"],
+                                        "additional_json_field_names": ["customer_secret"],
+                                    },
                                 },
-                                "capture": {"bodies": bodies, "max_body_bytes": 100},
-                                "redaction": {
-                                    "additional_header_names": ["X-Customer-Secret"],
-                                    "additional_query_parameter_names": ["private"],
-                                    "additional_json_field_names": ["customer_secret"],
-                                },
-                            },
-                        }
-                    ],
-                }
+                            }
+                        ],
+                    }
+                ]
             }
         )
-    )
+    ).listeners[0]
 
 
 def _read_records(app: FastAPI, log_path: Path) -> list[dict[str, object]]:
@@ -137,6 +145,43 @@ async def test_logging_records_redacted_json_exchange_without_changing_bytes(
         "body_truncated": False,
         "captured_body_bytes": len(body),
     }
+
+
+@pytest.mark.anyio
+async def test_logging_records_tag_listener_port(
+    monkeypatch: pytest.MonkeyPatch,
+    write_config: Callable[[dict[str, object] | None], Path],
+    tmp_path: Path,
+) -> None:
+    """Tag every protocol record with the port of the listener that served it."""
+
+    monkeypatch.setenv("UPSTREAM_API_KEY", "upstream-secret")
+    log_path = tmp_path / "proxy.jsonl"
+    config = _logging_config(write_config, log_path, port=8123)
+
+    def upstream_handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            headers={"Content-Type": "application/json"},
+            stream=_BytesStream(b'{"output":"world"}'),
+            request=request,
+        )
+
+    app = create_app(config, httpx.MockTransport(upstream_handler))
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app),
+        base_url="http://proxy.test",
+    ) as client:
+        response = await client.post(
+            "/v1/responses",
+            content=b'{"input":"hello"}',
+            headers={"Content-Type": "application/json"},
+        )
+
+    records = _read_records(app, log_path)
+    assert response.status_code == 200
+    assert records
+    assert all(record["listener_port"] == 8123 for record in records)
 
 
 @pytest.mark.anyio

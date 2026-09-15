@@ -13,7 +13,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 
 from niche_llm_proxy.app import PROXY_VERSION, create_app
-from niche_llm_proxy.config import ProxyConfig, load_config
+from niche_llm_proxy.config import ListenerRuntimeConfig, load_config
 from niche_llm_proxy.passthrough import create_http_client, stream_response
 
 
@@ -67,7 +67,7 @@ class _SendFailureClient(_CloseRecorder):
 
 
 @pytest.mark.anyio
-async def test_health_does_not_contact_upstream(proxy_config: ProxyConfig) -> None:
+async def test_health_does_not_contact_upstream(proxy_config: ListenerRuntimeConfig) -> None:
     """Do not forward health checks to the upstream."""
     contacted = False
 
@@ -103,14 +103,21 @@ async def test_health_reports_enabled_logging_feature(
     config = load_config(
         write_config(
             {
-                "listener": {
-                    "port": 8000,
-                    "mode": "passthrough",
-                    "features": [{"name": "logging", "config": {"stdout": True}}],
-                }
+                "listeners": [
+                    {
+                        "port": 8000,
+                        "mode": "passthrough",
+                        "upstream": {
+                            "base_url": "https://upstream.example.test",
+                            "api_key_env": "UPSTREAM_API_KEY",
+                        },
+                        "timeouts": {"connect_seconds": 1, "read_seconds": 2},
+                        "features": [{"name": "logging", "config": {"stdout": True}}],
+                    }
+                ]
             }
         )
-    )
+    ).listeners[0]
 
     app = create_app(config)
     async with httpx.AsyncClient(
@@ -130,13 +137,22 @@ async def test_health_reports_enabled_logging_feature(
 
 def test_create_http_client_allows_unlimited_read_timeout(
     monkeypatch: pytest.MonkeyPatch,
+    make_listener: Callable[[dict[str, object]], dict[str, object]],
     write_config: Callable[[dict[str, object] | None], Path],
 ) -> None:
     """Create an upstream client without a read timeout when read_seconds is null."""
     monkeypatch.setenv("UPSTREAM_API_KEY", "secret-value")
     config = load_config(
-        write_config({"timeouts": {"connect_seconds": 1, "read_seconds": None}})
-    )
+        write_config(
+            {
+                "listeners": [
+                    make_listener(
+                        {"timeouts": {"connect_seconds": 1, "read_seconds": None}}
+                    )
+                ]
+            }
+        )
+    ).listeners[0]
 
     client = create_http_client(config)
 
@@ -148,7 +164,7 @@ def test_create_http_client_allows_unlimited_read_timeout(
 
 @pytest.mark.anyio
 async def test_passthrough_forwards_request_and_replaces_authorization(
-    proxy_config: ProxyConfig,
+    proxy_config: ListenerRuntimeConfig,
 ) -> None:
     """Relay path, query, body, and allowed headers while replacing authorization."""
     received: dict[str, Any] = {}
@@ -192,7 +208,7 @@ async def test_passthrough_forwards_request_and_replaces_authorization(
 
 @pytest.mark.anyio
 async def test_passthrough_preserves_upstream_http_error(
-    proxy_config: ProxyConfig,
+    proxy_config: ListenerRuntimeConfig,
 ) -> None:
     """Return upstream HTTP errors without changing status or body."""
     upstream = FastAPI()
@@ -219,7 +235,7 @@ async def test_passthrough_preserves_upstream_http_error(
 
 @pytest.mark.anyio
 async def test_passthrough_relays_sse_chunks_in_order(
-    proxy_config: ProxyConfig,
+    proxy_config: ListenerRuntimeConfig,
 ) -> None:
     """Relay SSE response contents and order unchanged to the client."""
     upstream = FastAPI()
@@ -258,7 +274,7 @@ async def test_passthrough_relays_sse_chunks_in_order(
 )
 @pytest.mark.anyio
 async def test_passthrough_returns_safe_errors_for_upstream_failures(
-    proxy_config: ProxyConfig,
+    proxy_config: ListenerRuntimeConfig,
     error: httpx.RequestError,
     status_code: int,
     detail: str,
@@ -283,7 +299,7 @@ async def test_passthrough_returns_safe_errors_for_upstream_failures(
 @pytest.mark.anyio
 async def test_passthrough_localizes_proxy_generated_error_only(
     monkeypatch: pytest.MonkeyPatch,
-    proxy_config: ProxyConfig,
+    proxy_config: ListenerRuntimeConfig,
 ) -> None:
     """Japanese changes only the proxy-generated error detail, not upstream payloads."""
     monkeypatch.setenv("NICHELLM_LANGUAGE", "ja")
@@ -306,7 +322,7 @@ async def test_passthrough_localizes_proxy_generated_error_only(
 @pytest.mark.anyio
 async def test_passthrough_closes_client_when_send_raises_unexpected_error(
     monkeypatch: pytest.MonkeyPatch,
-    proxy_config: ProxyConfig,
+    proxy_config: ListenerRuntimeConfig,
 ) -> None:
     """Close the per-request client before propagating a non-HTTPX send error."""
     upstream_client = _SendFailureClient(RuntimeError("request stream failed"))
@@ -329,7 +345,7 @@ async def test_passthrough_closes_client_when_send_raises_unexpected_error(
 @pytest.mark.anyio
 async def test_passthrough_closes_client_when_send_is_cancelled(
     monkeypatch: pytest.MonkeyPatch,
-    proxy_config: ProxyConfig,
+    proxy_config: ListenerRuntimeConfig,
 ) -> None:
     """Close the per-request client before propagating upstream send cancellation."""
     upstream_client = _SendFailureClient(asyncio.CancelledError())
@@ -351,7 +367,7 @@ async def test_passthrough_closes_client_when_send_is_cancelled(
 
 @pytest.mark.anyio
 async def test_responses_json_preserves_raw_body_query_and_unknown_fields(
-    proxy_config: ProxyConfig,
+    proxy_config: ListenerRuntimeConfig,
 ) -> None:
     """Relay a Responses request without parsing its JSON representation."""
     received: dict[str, Any] = {}
@@ -388,7 +404,7 @@ async def test_responses_json_preserves_raw_body_query_and_unknown_fields(
 
 @pytest.mark.anyio
 async def test_responses_sse_preserves_events_and_end_to_end_headers(
-    proxy_config: ProxyConfig,
+    proxy_config: ListenerRuntimeConfig,
 ) -> None:
     """Relay Responses SSE events as received, without assuming a [DONE] event."""
     events = (
@@ -430,7 +446,7 @@ async def test_responses_sse_preserves_events_and_end_to_end_headers(
 )
 @pytest.mark.anyio
 async def test_multipart_request_preserves_raw_non_utf8_bytes(
-    proxy_config: ProxyConfig,
+    proxy_config: ListenerRuntimeConfig,
     path: str,
 ) -> None:
     """Forward multipart bodies byte-for-byte, including NUL and non-UTF-8 bytes."""
@@ -473,7 +489,7 @@ async def test_multipart_request_preserves_raw_non_utf8_bytes(
 
 @pytest.mark.anyio
 async def test_binary_response_preserves_bytes_and_content_metadata(
-    proxy_config: ProxyConfig,
+    proxy_config: ListenerRuntimeConfig,
 ) -> None:
     """Return binary audio bytes and representation metadata unchanged."""
     audio = b"ID3\x04\x00\x00\x00\x00\x00\x15\x00\xff\x00binary-audio"
@@ -508,7 +524,7 @@ async def test_binary_response_preserves_bytes_and_content_metadata(
 
 @pytest.mark.anyio
 async def test_range_request_and_partial_binary_response_are_preserved(
-    proxy_config: ProxyConfig,
+    proxy_config: ListenerRuntimeConfig,
 ) -> None:
     """Forward Range and preserve a 206 file-content response unchanged."""
     partial = b"\x00\xfffile-slice"
@@ -543,7 +559,7 @@ async def test_range_request_and_partial_binary_response_are_preserved(
 
 @pytest.mark.anyio
 async def test_duplicate_headers_and_connection_named_headers_are_handled(
-    proxy_config: ProxyConfig,
+    proxy_config: ListenerRuntimeConfig,
 ) -> None:
     """Keep duplicate end-to-end headers while stripping hop-by-hop connection tokens."""
     received: dict[str, list[tuple[bytes, bytes]]] = {}

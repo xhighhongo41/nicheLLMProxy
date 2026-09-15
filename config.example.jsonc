@@ -1,0 +1,49 @@
+{
+  // Configuration for nicheLLM Proxy (v1.4 schema).
+  // Each entry in "listeners" is a complete, independent listener: it binds
+  // one port and carries its own upstream, timeouts, and features, so a
+  // single process can serve several providers at once. See
+  // config.multi-listener.example.jsonc for a multi-port setup.
+  "listeners": [
+    {
+      // Port the proxy listens on. Each port must be unique.
+      "port": 8000,
+      // One of: passthrough, grok-image, gemini-image, featherless.
+      "mode": "passthrough",
+      "upstream": {
+        // Base URL of the upstream OpenAI-compatible API.
+        "base_url": "https://api.openai.com",
+        // Environment variable that holds the upstream API key.
+        "api_key_env": "UPSTREAM_API_KEY"
+      },
+      "timeouts": {
+        "connect_seconds": 10,
+        "read_seconds": 120
+      },
+      // Optional per-listener features. Remove this block to disable logging.
+      "features": [
+        {
+          "name": "logging",
+          "config": {
+            "stdout": true,
+            "file": {
+              "enabled": true,
+              "path": "/var/log/nichellm/proxy.jsonl",
+              "max_bytes": 10485760,
+              "backup_count": 5
+            },
+            "capture": {
+              "bodies": false,
+              "max_body_bytes": 1048576
+            },
+            "redaction": {
+              "additional_header_names": [],
+              "additional_query_parameter_names": [],
+              "additional_json_field_names": []
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

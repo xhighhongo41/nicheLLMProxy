@@ -8,22 +8,43 @@ from pathlib import Path
 
 import pytest
 
-from niche_llm_proxy.config import ProxyConfig, load_config
+from niche_llm_proxy.config import ListenerRuntimeConfig, load_config
+
+
+def default_listener() -> dict[str, object]:
+    """Return the default single-listener settings used by tests."""
+    return {
+        "port": 8000,
+        "mode": "passthrough",
+        "upstream": {
+            "base_url": "https://upstream.example.test",
+            "api_key_env": "UPSTREAM_API_KEY",
+        },
+        "timeouts": {"connect_seconds": 1, "read_seconds": 2},
+    }
 
 
 @pytest.fixture
-def write_config(tmp_path: Path) -> Callable[[dict[str, object]], Path]:
+def make_listener() -> Callable[[dict[str, object]], dict[str, object]]:
+    """Return a function that builds a listener settings dictionary."""
+
+    def _make_listener(overrides: dict[str, object] | None = None) -> dict[str, object]:
+        listener = default_listener()
+        if overrides:
+            listener.update(overrides)
+        return listener
+
+    return _make_listener
+
+
+@pytest.fixture
+def write_config(
+    tmp_path: Path, make_listener: Callable[[dict[str, object]], dict[str, object]]
+) -> Callable[[dict[str, object]], Path]:
     """Return a function that writes test configuration JSON."""
 
     def _write_config(overrides: dict[str, object] | None = None) -> Path:
-        settings: dict[str, object] = {
-            "listener": {"port": 8000, "mode": "passthrough"},
-            "upstream": {
-                "base_url": "https://upstream.example.test",
-                "api_key_env": "UPSTREAM_API_KEY",
-            },
-            "timeouts": {"connect_seconds": 1, "read_seconds": 2},
-        }
+        settings: dict[str, object] = {"listeners": [make_listener()]}
         if overrides:
             settings.update(overrides)
         config_path = tmp_path / "config.json"
@@ -37,7 +58,7 @@ def write_config(tmp_path: Path) -> Callable[[dict[str, object]], Path]:
 def proxy_config(
     monkeypatch: pytest.MonkeyPatch,
     write_config: Callable[[dict[str, object]], Path],
-) -> ProxyConfig:
-    """Return valid proxy configuration with an upstream key."""
+) -> ListenerRuntimeConfig:
+    """Return valid configuration for the first listener."""
     monkeypatch.setenv("UPSTREAM_API_KEY", "upstream-secret")
-    return load_config(write_config())
+    return load_config(write_config()).listeners[0]

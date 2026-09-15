@@ -1,5 +1,15 @@
 # Changelog
 
+### v1.4.0 (2026-09-15)
+
+- Breaking configuration change: the top-level `listener`, `upstream`, and `timeouts` blocks were replaced by a required top-level `listeners` array whose entries each describe one port with its own complete settings (port, mode, upstream, timeouts, mode-specific blocks, and features). Pre-v1.4 files are rejected at startup with an error pointing to the README migration guide instead of being migrated automatically.
+- Added multi-listener support: one proxy process can now serve several ports in different modes at the same time, sharing a single event loop. Listener ports must be unique; duplicate ports fail startup.
+- Added JSONC support to configuration files: `//` line comments and `/* */` block comments are accepted in any configuration file regardless of its extension, including comments inside string values such as URLs, which are preserved. The default configuration path now prefers `/app/config/config.jsonc` and falls back to `/app/config/config.json`; setting `NICHELLM_CONFIG_PATH` explicitly uses exactly that path.
+- Extended `GET /health` per listener: each port now reports its own `status`, `version`, `mode`, and `features`.
+- Added the `listener_port` field to every protocol-logging record so entries from concurrent listeners can be told apart. Multiple listeners logging to the same file produce a startup warning instead of an error.
+- Reworked the startup output: the proxy prints one aggregate line with the version and listener count followed by one line per listener (port, mode, features), and prefixes per-listener configuration warnings with `[port N]` on the standard error output.
+- Updated the bundled examples to the new schema as commented `.jsonc` files and added `config.multi-listener.example.jsonc` combining all four modes; the bundled `docker-compose.yml` now mounts `config.jsonc`, publishes one port mapping per listener, and its healthcheck probes every listener port read from the configuration. The `Dockerfile` no longer pins `NICHELLM_CONFIG_PATH` to `config.json` and no longer declares `EXPOSE 8000`, so the container adapts to any configured port set.
+
 ### v1.3.2 (2026-09-15)
 
 - Announced the startup configuration: the proxy now prints a single line to the standard output naming the proxy version, the listener mode, and the enabled features (stating `no features` when none are enabled), and prints each configuration warning to the standard error output.

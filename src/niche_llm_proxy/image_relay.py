@@ -13,7 +13,7 @@ import httpx
 from fastapi import Request
 from fastapi.responses import JSONResponse, Response
 
-from niche_llm_proxy.config import ProxyConfig
+from niche_llm_proxy.config import ListenerRuntimeConfig
 from niche_llm_proxy.logging_feature import ExchangeLog
 from niche_llm_proxy.passthrough import (
     build_upstream_url,
@@ -58,7 +58,7 @@ def ensure_created(body: bytes) -> bytes:
 
 
 async def relay_upstream(
-    config: ProxyConfig,
+    config: ListenerRuntimeConfig,
     exchange: ExchangeLog | None,
     upstream_transport: httpx.AsyncBaseTransport | None,
     request: Request,

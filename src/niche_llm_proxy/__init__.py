@@ -1,9 +1,10 @@
 """nicheLLM Proxy package."""
 
 from .config import (
-    DEFAULT_CONFIG_PATH,
+    DEFAULT_CONFIG_PATHS,
     ConfigError,
     ListenerConfig,
+    ListenerRuntimeConfig,
     ProxyConfig,
     TimeoutConfig,
     UpstreamConfig,
@@ -12,9 +13,10 @@ from .config import (
 )
 
 __all__ = [
-    "DEFAULT_CONFIG_PATH",
+    "DEFAULT_CONFIG_PATHS",
     "ConfigError",
     "ListenerConfig",
+    "ListenerRuntimeConfig",
     "ProxyConfig",
     "TimeoutConfig",
     "UpstreamConfig",

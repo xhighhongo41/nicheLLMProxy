@@ -10,7 +10,7 @@ import httpx
 from fastapi import Request
 from fastapi.responses import Response
 
-from niche_llm_proxy.config import GrokImageConfig, ProxyConfig
+from niche_llm_proxy.config import GrokImageConfig, ListenerRuntimeConfig
 from niche_llm_proxy.i18n import translate
 from niche_llm_proxy.image_relay import (
     TransformError,
@@ -155,7 +155,7 @@ def transform_request_body(body: bytes, settings: GrokImageConfig | None) -> byt
 
 
 async def handle_grok_image_generations(
-    config: ProxyConfig,
+    config: ListenerRuntimeConfig,
     exchange: ExchangeLog | None,
     upstream_transport: httpx.AsyncBaseTransport | None,
     request: Request,
