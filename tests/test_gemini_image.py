@@ -383,13 +383,12 @@ def _gemini_image_config(
     listener: dict[str, object] = {
         "port": 8000,
         "mode": "gemini-image",
+        "gemini_image": gemini_image if gemini_image is not None else {},
         "upstream": {
             "base_url": "https://upstream.example.test",
             "api_key_env": "GEMINI_API_KEY",
         },
     }
-    if gemini_image is not None:
-        listener["gemini_image"] = gemini_image
     if logging_config is not None:
         listener["features"] = [{"name": "logging", "config": logging_config}]
     return load_config(write_config({"listeners": [listener]})).listeners[0]

@@ -225,6 +225,38 @@ def test_announce_startup_prints_load_config_warnings_to_stderr(
     assert err == "Unknown top-level configuration keys were ignored: bogus_setting.\n"
 
 
+def test_announce_startup_prints_skipped_listener_warning_to_stderr(
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+    write_config: Callable[[dict[str, object] | None], Path],
+    make_listener: Callable[[dict[str, object]], dict[str, object]],
+) -> None:
+    """A warning about a skipped listener reaches stderr through announce_startup."""
+
+    monkeypatch.setenv("UPSTREAM_API_KEY", "upstream-secret")
+    config = load_config(
+        write_config(
+            {
+                "listeners": [
+                    make_listener(),
+                    make_listener({"port": 8001, "mode": "featherless"}),
+                ]
+            }
+        )
+    )
+    assert len(config.listeners) == 1
+    assert len(config.warnings) == 1
+
+    announce_startup(config)
+
+    out, err = capsys.readouterr()
+    assert out == (
+        f"nicheLLM Proxy {PROXY_VERSION} starting with 1 listener.\n"
+        "  - port 8000: mode 'passthrough' with no features.\n"
+    )
+    assert err == f"{config.warnings[0]}\n"
+
+
 def test_announce_startup_prints_japanese_startup_line_and_load_config_warnings(
     capsys: pytest.CaptureFixture[str],
     monkeypatch: pytest.MonkeyPatch,

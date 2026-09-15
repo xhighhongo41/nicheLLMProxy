@@ -18,7 +18,7 @@ import httpx
 from fastapi import Request
 from fastapi.responses import JSONResponse, Response
 
-from niche_llm_proxy.config import FeatherlessConfig, ListenerRuntimeConfig
+from niche_llm_proxy.config import ConfigError, FeatherlessConfig, ListenerRuntimeConfig
 from niche_llm_proxy.i18n import translate
 from niche_llm_proxy.image_relay import TransformError
 from niche_llm_proxy.logging_feature import ExchangeLog
@@ -787,8 +787,11 @@ class FeatherlessRuntime:
     ) -> None:
         settings = config.listener.featherless
         if settings is None:
-            raise ValueError(
-                "FeatherlessRuntime requires a featherless mode configuration."
+            raise ConfigError(
+                translate(
+                    "The 'featherless' mode requires a 'featherless' "
+                    "section in the configuration."
+                )
             )
         self.config = config
         self.cache = ModelInfoCache(

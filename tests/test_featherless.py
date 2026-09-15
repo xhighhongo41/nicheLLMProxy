@@ -7,6 +7,7 @@ import hashlib
 import json
 import time
 from collections.abc import AsyncIterator, Callable
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -16,6 +17,7 @@ from fastapi import Request
 
 from niche_llm_proxy.app import PROXY_VERSION, _acquire_or_disconnect, create_app
 from niche_llm_proxy.config import (
+    ConfigError,
     FeatherlessConfig,
     ListenerRuntimeConfig,
     load_config,
@@ -243,6 +245,21 @@ model_whitelist: tuple[str, ...] = (KIMI, QWEN),
             }
         )
     ).listeners[0]
+
+
+def test_featherless_runtime_rejects_missing_featherless_settings(
+    write_config: Callable[[dict[str, object] | None], Path]
+) -> None:
+    """A runtime without featherless settings fails with a configuration error."""
+    runtime_config = _featherless_config(write_config)
+    stripped = replace(
+        runtime_config,
+        listener=replace(runtime_config.listener, featherless=None),
+    )
+
+    with pytest.raises(ConfigError, match="featherless"):
+        FeatherlessRuntime(stripped)
+
 
 class TestClassifyRequest:
     """Route and method classification for the featherless mode."""

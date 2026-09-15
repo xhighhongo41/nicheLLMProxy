@@ -54,7 +54,7 @@ docker compose exec nichellm-proxy sh -c 'ls -lh /var/log/nichellm'
 公開済みのmulti-platform(`linux/amd64`、`linux/arm64`)イメージは`xhighhongo41/nichellm-proxy`で入手できます。本番では正確なバージョンタグを利用してください。`1.3`や`latest`のようなローリングタグも存在します。
 
 ```bash
-docker pull xhighhongo41/nichellm-proxy:1.4.0
+docker pull xhighhongo41/nichellm-proxy:1.4.1
 ```
 
 イメージにはAPIキーも設定ファイルも含まれません。Composeファイルと同じ場所に、設定で使うAPIキー変数を記した`.env`ファイルを作成し([APIキー管理](#apiキー管理)を参照)、作業ディレクトリに`config.jsonc`([設定](#設定)の完全な例から始めてください)と次のComposeファイルを配置します。
@@ -62,7 +62,7 @@ docker pull xhighhongo41/nichellm-proxy:1.4.0
 ```yaml
 services:
   nichellm-proxy:
-    image: xhighhongo41/nichellm-proxy:1.4.0
+    image: xhighhongo41/nichellm-proxy:1.4.1
     # config.jsoncで定義したリスナーポートごとに1つのマッピングを追加。
     ports:
       - "127.0.0.1:8000:8000"
@@ -152,7 +152,7 @@ git pull
 docker compose up --build -d
 ```
 
-公開Docker Hubイメージで実行している場合: Composeファイル内のイメージタグを更新し(例: `xhighhongo41/nichellm-proxy:1.4.0`)、次を実行します。
+公開Docker Hubイメージで実行している場合: Composeファイル内のイメージタグを更新し(例: `xhighhongo41/nichellm-proxy:1.4.1`)、次を実行します。
 
 ```bash
 docker compose pull
@@ -238,7 +238,7 @@ uv sync
 
 `timeouts`オブジェクト自体も省略でき、既定値のあるキーはすべて省略できます。複数のリスナーが同じ`upstream`設定を繰り返して、1つの上流プロバイダーを共有できます。同梱`docker-compose.yml`のhealthcheckはマウントされた`config.jsonc`からリスナーポートを読み取り、それぞれを確認するため、どのポートの組み合わせでも正確に機能します。
 
-モード固有のキー(リスナー項目内の`grok_image`、`gemini_image`、`featherless`)と、任意の`features`のloggingフィーチャーは[モードとフィーチャー](#モードとフィーチャー)で説明します。モード固有オブジェクト内の未知キーと不正な値は、起動時の設定エラーとして拒否されます。項目の`mode`に属さないモード固有ブロック、最上位の未知キー、`logging.file.enabled`が`false`のときに無視される`logging.file`の設定は、起動時の警告として報告されて無視されます。プロキシは起動を続け、警告は1件ずつ標準エラー出力に表示されるため、設定が効いていないように見える場合はキーのスペル(例: `timeouts`を`timouts`と書く)と起動時の警告を確認してください。各モードの完全な例は`config.grok-image.example.jsonc`、`config.gemini-image.example.jsonc`、`config.featherless.example.jsonc`にあります。
+モード固有のキー(リスナー項目内の`grok_image`、`gemini_image`、`featherless`)と、任意の`features`のloggingフィーチャーは[モードとフィーチャー](#モードとフィーチャー)で説明します。`grok-image`・`gemini-image`・`featherless`の各モードではモード固有キーが必須です。これらのモードのリスナー項目でモード固有キーが欠落している場合、そのリスナーは起動対象から外れ、ポート・モード・欠落キー名を含む起動時警告が標準エラー出力に表示され、他のリスナーは通常どおり起動します。`passthrough`にモード固有キーはありません。全リスナーがこの方法でスキップされた場合、起動は設定エラーで失敗します。モード固有オブジェクト内の未知キーと不正な値は、起動時の設定エラーとして拒否されます。項目の`mode`に属さないモード固有ブロック、最上位の未知キー、`logging.file.enabled`が`false`のときに無視される`logging.file`の設定は、起動時の警告として報告されて無視されます。プロキシは起動を続け、警告は1件ずつ標準エラー出力に表示されるため、設定が効いていないように見える場合はキーのスペル(例: `timeouts`を`timouts`と書く)と起動時の警告を確認してください。各モードの完全な例は`config.grok-image.example.jsonc`、`config.gemini-image.example.jsonc`、`config.featherless.example.jsonc`にあります。
 
 ### 環境変数
 
@@ -274,7 +274,7 @@ Docker Composeでは、Composeファイルと同じ場所に置いた`.env`フ�
 
 ## モードとフィーチャー
 
-各リスナー項目の`mode`には`passthrough`、`grok-image`、`gemini-image`、または`featherless`を指定でき、1プロセスが設定された全リスナーを並行に待ち受けます。`GET /health`はどのモードでも動作し、各ポートが自身の`status`、`version`、`mode`、有効なフィーチャー名を返します。起動時には、プロキシのバージョンとリスナー数を示す集計行を1行、続けて各リスナーのポート・モード・有効なフィーチャー名を示す行を1行ずつ標準出力へ表示し、設定警告は1件ずつ標準エラー出力に表示します。リスナー個別の警告には`[port N]`接頭辞が付きます。上流エラーはステータスと本文をそのまま透過し、上流への接続・読取失敗は`passthrough`と同じ502/504応答を返します。
+各リスナー項目の`mode`には`passthrough`、`grok-image`、`gemini-image`、または`featherless`を指定でき、1プロセスが設定された全リスナーを並行に待ち受けます。`GET /health`はどのモードでも動作し、各ポートが自身の`status`、`version`、`mode`、有効なフィーチャー名を返します。起動時には、プロキシのバージョンとリスナー数を示す集計行を1行、続けて各リスナーのポート・モード・有効なフィーチャー名を示す行を1行ずつ標準出力へ表示し、設定警告は1件ずつ標準エラー出力に表示します。リスナー個別の警告には`[port N]`接頭辞が付きます。リスナー数とリスナー行は実際に起動したリスナーのみが対象で、モード固有キー欠落でスキップされたリスナーは警告行を通じてのみ報告されます。上流エラーはステータスと本文をそのまま透過し、上流への接続・読取失敗は`passthrough`と同じ502/504応答を返します。
 
 |モード・フィーチャー|機能|設定|
 |---|---|---|
@@ -283,6 +283,8 @@ Docker Composeでは、Composeファイルと同じ場所に置いた`.env`フ�
 |`gemini-image`|Google Geminiの画像生成をOpenAI互換インターフェースとして提供|`gemini_image`|
 |`featherless`|featherless.aiをモデルホワイトリストとAPIキーごとの同時リクエストキューイングで中継|`featherless`|
 |`logging`フィーチャー|構造化プロトコルログ。全モードで利用可能|`features`|
+
+設定列のモード固有キーは、その項目の`mode`では必須です。欠落しているリスナー項目は起動対象から外れ、ポート・モード・欠落キー名を含む起動時警告が表示されます。`passthrough`にモード固有キーはありません。`upstream`ブロックは全モードで共通です。
 
 ### passthroughモード
 
@@ -333,7 +335,7 @@ Realtime APIとResponses WebSocket modeを含むWebSocket、WebRTC、SIP通信�
 
 `grok-image`モードでは、プロキシはOpenAI専用パラメータの`size`、`quality`、`style`、`seed`、`background`、`moderation`、`output_format`、`output_compression`を除去し、リクエストに`response_format`がなければ`b64_json`を付与し(明示的な`b64_json`と`url`はそのまま透過し、それ以外の値はHTTP 400で拒否)、`n`が1から10の整数であることを検証し、その他不正リクエストは上流へ送る前にHTTP 400で拒否し、`storage_options`などそれ以外のキーはそのまま透過します。`logging`フィーチャーはこのモードでも`passthrough`と同様に機能します。
 
-`grok_image`キーは`grok-image`リスナー項目内では任意で、他のモードでは起動時警告付きで無視されます。リクエストでの直接指定が優先される既定値を持ちます。
+`grok_image`キーは`grok-image`リスナー項目内では必須です。欠落している項目は起動対象から外れ、起動時警告として報告されます。他のモードでは起動時警告付きで無視されます。リクエストでの直接指定が優先される既定値を持ちます。
 
 - `default_model`: リクエストに`model`がない場合に使う既定モデル。リクエスト・設定の双方にない場合はHTTP 400を返します。
 - `aspect_ratio`: リクエストに`aspect_ratio`がない場合に付与します(例: `1:1`、`16:9`)。
@@ -400,7 +402,7 @@ Realtime APIとResponses WebSocket modeを含むWebSocket、WebRTC、SIP通信�
 
 OpenAI互換層での画像生成に使えるモデルは、Googleによるホワイトリストに制限されます。2026-09-09時点で動作を確認済みなのは`gemini-3-pro-image-preview`のみで、`gemini-2.5-flash-image`は公式文書に記載がありますが2026-10-02に提供終了予定です。GA名の`gemini-3-pro-image`と`gemini-3.1-flash-image`は現在この層経由ではHTTP 404となり利用できません。
 
-`gemini_image`キーは`gemini-image`リスナー項目内では任意で、他のモードでは起動時警告付きで無視されます。リクエストでの直接指定が優先される既定値を持ちます。
+`gemini_image`キーは`gemini-image`リスナー項目内では必須です。欠落している項目は起動対象から外れ、起動時警告として報告されます。他のモードでは起動時警告付きで無視されます。リクエストでの直接指定が優先される既定値を持ちます。
 
 - `default_model`: リクエストに`model`がない場合に使う既定モデル。リクエスト・設定の双方にない場合はHTTP 400を返します。
 - `aspect_ratio`: リクエストに`size`と`aspect_ratio`の両方がない場合に付与します(例: `1:1`、`16:9`)。
@@ -477,7 +479,7 @@ featherless.aiは同時リクエストをunitで計量します。処理中の�
 
 #### `featherless`設定
 
-`featherless`キーは`featherless`モードでは必須で、他のモードでは起動時警告付きで無視されます。
+`featherless`キーは`featherless`モードでは必須です。欠落している項目は起動対象から外れ、起動時警告として報告されます。他のモードでは起動時警告付きで無視されます。
 
 - `model_whitelist`: 必須。モデルid文字列の空でないリスト(例: `moonshotai/Kimi-K2.6`)。完全一致のみ。`GET /v1/models`に表示され、リクエストで受け付けられるのはこれらのモデルだけです。
 - `concurrency_limit`: 任意の正の整数。`GET /v1/plan`から取得するプラン上限を上書きします。省略時はプランに自動追従します。
@@ -554,11 +556,18 @@ curl -s 'https://api.featherless.ai/v1/models?per_page=100' | jq -r '.data[].id'
 - `v1.4以降の設定には最上位の 'listeners' 配列が必要です。移行手順はREADMEを参照してください。`(英語: `Since v1.4 the configuration requires a top-level 'listeners' array. See the README for the migration guide.`) — 設定がv1.4より前の形式です。[設定](#設定)の`listeners`形式へ書き換えてください。
 - `設定ファイルが見つかりません: {path}`(英語: `Configuration file was not found: {path}`) — そのパスに設定ファイルがありません。ホスト実行では`NICHELLM_CONFIG_PATH`を、Dockerでは`config.jsonc`のマウントを確認してください。
 - `上流APIキーの環境変数 '{api_key_env}' が設定されていません。`(英語: `Upstream API key environment variable '{api_key_env}' is not set.`) — `api_key_env`が指す変数が設定されていません。シェルでexportするか、Composeファイルと同じ場所の`.env`ファイルに設定してください。
+- `モード '{mode}' には '{section}' セクションが必要ですが設定に存在しないため、ポート {port} のリスナーをスキップしました。`(英語: `Skipped the listener on port {port} because mode '{mode}' requires a '{section}' section, which is missing from the configuration.`) — 該当ポートのリスナー項目はモード固有キーが必須のモードで設定されていますが、そのキーが欠落しているため、このリスナーは起動されていません。欠落キーを追加するか(詳細は[モードとフィーチャー](#モードとフィーチャー))、`mode`を`passthrough`に変更してください。他のリスナーは通常どおり起動します。
 - 設定が効いていないように見える — 最上位の未知キー、項目の`mode`に属さないモード固有ブロック、`logging.file.enabled`が`false`のときの`logging.file`の設定は、起動時の警告とともに無視されます。リスナー個別の警告には`[port N]`接頭辞が付きます。起動時に表示される警告行と、キーのスペル(例: `timeouts`を`timouts`と書く)を確認してください。
 
 プロキシ自身が出すエラーメッセージは`NICHELLM_LANGUAGE`に応じてローカライズされます(既定は英語、`ja`で日本語)。
 
 ## 変更履歴
+
+### v1.4.1(2026-09-15)
+
+- 挙動変更: `grok-image`・`gemini-image`・`featherless`の各モードのリスナー項目でモード固有キー(`grok_image`、`gemini_image`、`featherless`)が欠落している場合、そのリスナーは起動対象から外れ、ポート・モード・欠落キー名を含む起動時警告が表示されるようになりました。従来は`grok_image`・`gemini_image`の欠落時に既定値で起動し、`featherless`の欠落時は起動中にクラッシュしていました。他のリスナーは通常どおり起動し、全リスナーがスキップされた場合は設定エラーで起動に失敗します。
+- `tools/check.sh`にruffのlintゲートを追加しました。ruffは開発依存として`uv.lock`に固定されます。
+- `/health`・起動出力・スキップ警告・SIGINT終了を検証する実プロセス起動スモークテストを追加しました。
 
 ### v1.4.0(2026-09-15)
 

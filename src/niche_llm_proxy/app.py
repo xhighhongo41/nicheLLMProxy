@@ -55,7 +55,7 @@ from niche_llm_proxy.passthrough import (
     upstream_error_detail,
 )
 
-PROXY_VERSION = "1.4.0"
+PROXY_VERSION = "1.4.1"
 """Proxy release version reported by the health endpoint and startup log."""
 
 _FORWARDED_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"]

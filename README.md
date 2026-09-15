@@ -54,7 +54,7 @@ To delete retained logs deliberately, stop the service and remove the named volu
 Published multi-platform (`linux/amd64`, `linux/arm64`) images are available at `xhighhongo41/nichellm-proxy`. Use an exact version tag in production; rolling tags such as `1.3` and `latest` also exist.
 
 ```bash
-docker pull xhighhongo41/nichellm-proxy:1.4.0
+docker pull xhighhongo41/nichellm-proxy:1.4.1
 ```
 
 The image contains no API key or configuration file. Create a `.env` file next to the Compose file with the API key variables your configuration uses (see [API key management](#api-key-management)), and put a `config.jsonc` (start from the full example in [Configuration](#configuration)) and this Compose file in a working directory:
@@ -62,7 +62,7 @@ The image contains no API key or configuration file. Create a `.env` file next t
 ```yaml
 services:
   nichellm-proxy:
-    image: xhighhongo41/nichellm-proxy:1.4.0
+    image: xhighhongo41/nichellm-proxy:1.4.1
     # Add one mapping per listener port defined in config.jsonc.
     ports:
       - "127.0.0.1:8000:8000"
@@ -152,7 +152,7 @@ git pull
 docker compose up --build -d
 ```
 
-Published Docker Hub image: update the image tag in your Compose file (for example `xhighhongo41/nichellm-proxy:1.4.0`), then:
+Published Docker Hub image: update the image tag in your Compose file (for example `xhighhongo41/nichellm-proxy:1.4.1`), then:
 
 ```bash
 docker compose pull
@@ -240,7 +240,7 @@ Common keys:
 
 The `timeouts` object itself is optional, and every key with a default value can be omitted. Multiple listeners may share one upstream provider by repeating the same `upstream` settings. The healthcheck in the bundled `docker-compose.yml` reads the configured listener ports from the mounted `config.jsonc` and probes each one, so it stays accurate for any port set.
 
-Mode-specific keys (`grok_image`, `gemini_image`, `featherless` inside a listener entry) and the optional `features` logging feature are described in [Modes and features](#modes-and-features). Unknown keys inside the mode-specific objects and invalid values are rejected as startup configuration errors. A mode-specific block that does not belong to the entry's `mode`, unknown top-level keys, and `logging.file` settings ignored while `logging.file.enabled` is `false` are reported as startup warnings and ignored — the proxy keeps starting and prints each warning to the standard error output; check the key spelling (for example `timouts` instead of `timeouts`) if a setting seems to have no effect. Complete mode examples are available as `config.grok-image.example.jsonc`, `config.gemini-image.example.jsonc`, and `config.featherless.example.jsonc`.
+Mode-specific keys (`grok_image`, `gemini_image`, `featherless` inside a listener entry) and the optional `features` logging feature are described in [Modes and features](#modes-and-features). The `grok-image`, `gemini-image`, and `featherless` modes require their mode-specific key: a listener entry in one of these modes whose mode-specific key is missing is not started, a startup warning naming the port, mode, and missing key is printed to the standard error output, and the remaining listeners start normally. `passthrough` needs no mode-specific key. When every listener is skipped this way, startup fails with a configuration error. Unknown keys inside the mode-specific objects and invalid values are rejected as startup configuration errors. A mode-specific block that does not belong to the entry's `mode`, unknown top-level keys, and `logging.file` settings ignored while `logging.file.enabled` is `false` are reported as startup warnings and ignored — the proxy keeps starting and prints each warning to the standard error output; check the key spelling (for example `timouts` instead of `timeouts`) if a setting seems to have no effect. Complete mode examples are available as `config.grok-image.example.jsonc`, `config.gemini-image.example.jsonc`, and `config.featherless.example.jsonc`.
 
 ### Environment variables
 
@@ -276,7 +276,7 @@ For background responses, batches, and fine-tuning jobs, create the job and poll
 
 ## Modes and features
 
-Each listener entry's `mode` accepts `passthrough`, `grok-image`, `gemini-image`, or `featherless`; one process serves every configured listener concurrently. `GET /health` works in every mode and each port returns its own `status`, `version`, `mode`, and enabled feature names. At startup, the proxy prints one aggregate line to the standard output naming the proxy version and the listener count, followed by one line per listener naming its port, mode, and enabled feature names, and prints each configuration warning to the standard error output; per-listener warnings are prefixed with `[port N]`. Upstream errors are passed through with their status and body unchanged, and upstream connection and read failures return the same 502/504 responses as `passthrough`.
+Each listener entry's `mode` accepts `passthrough`, `grok-image`, `gemini-image`, or `featherless`; one process serves every configured listener concurrently. `GET /health` works in every mode and each port returns its own `status`, `version`, `mode`, and enabled feature names. At startup, the proxy prints one aggregate line to the standard output naming the proxy version and the listener count, followed by one line per listener naming its port, mode, and enabled feature names, and prints each configuration warning to the standard error output; per-listener warnings are prefixed with `[port N]`. The listener count and per-listener lines cover only the listeners that actually start; a listener skipped for a missing mode-specific key is reported only through its warning. Upstream errors are passed through with their status and body unchanged, and upstream connection and read failures return the same 502/504 responses as `passthrough`.
 
 |Mode / feature|Function|Settings|
 |---|---|---|
@@ -285,6 +285,8 @@ Each listener entry's `mode` accepts `passthrough`, `grok-image`, `gemini-image`
 |`gemini-image`|Presents Google Gemini image generation through an OpenAI-compatible interface|`gemini_image`|
 |`featherless`|Relays featherless.ai with a model whitelist and per-key concurrent-request queueing|`featherless`|
 |`logging` feature|Structured protocol logging, available in every mode|`features`|
+
+The mode-specific key in the Settings column is required when the entry's `mode` is that mode; a listener entry that omits it is not started and a startup warning naming the port, mode, and missing key is printed. `passthrough` has no mode-specific key. The `upstream` block is common to every mode.
 
 ### passthrough mode
 
@@ -335,7 +337,7 @@ Some deprecated or legacy OpenAI endpoints (for example Assistants (`/v1/assista
 
 In `grok-image` mode, the proxy removes the OpenAI-only parameters `size`, `quality`, `style`, `seed`, `background`, `moderation`, `output_format`, and `output_compression`; adds `response_format: "b64_json"` when the request omits it (explicit `b64_json` and `url` values pass through; other values are rejected with HTTP 400); validates that `n` is an integer between 1 and 10; rejects other invalid requests with HTTP 400 before they reach the upstream; and passes other keys such as `storage_options` through unchanged. The `logging` feature works in this mode as in `passthrough`.
 
-The `grok_image` key is optional inside a `grok-image` listener entry and ignored with a startup warning in other modes. It supplies defaults that a direct request value overrides:
+The `grok_image` key is required inside a `grok-image` listener entry; an entry that omits it is not started and is reported with a startup warning. In other modes the key is ignored with a startup warning. It supplies defaults that a direct request value overrides:
 
 - `default_model`: used when the request has no `model`. If neither is present, the proxy returns HTTP 400.
 - `aspect_ratio`: added when the request omits `aspect_ratio` (for example `1:1` or `16:9`).
@@ -402,7 +404,7 @@ In `gemini-image` mode, the proxy adds `response_format: "b64_json"` when the re
 
 Model availability for image generation through the OpenAI compatibility layer is restricted by Google to a whitelist. As of 2026-09-09, `gemini-3-pro-image-preview` is the only model verified to work, and `gemini-2.5-flash-image` is documented but reaches its end of life on 2026-10-02. The GA model names `gemini-3-pro-image` and `gemini-3.1-flash-image` currently return HTTP 404 through this layer and cannot be used.
 
-The `gemini_image` key is optional inside a `gemini-image` listener entry and ignored with a startup warning in other modes. It supplies defaults that a direct request value overrides:
+The `gemini_image` key is required inside a `gemini-image` listener entry; an entry that omits it is not started and is reported with a startup warning. In other modes the key is ignored with a startup warning. It supplies defaults that a direct request value overrides:
 
 - `default_model`: used when the request has no `model`. If neither is present, the proxy returns HTTP 400.
 - `aspect_ratio`: added when the request has neither `size` nor `aspect_ratio` (for example `1:1` or `16:9`).
@@ -479,7 +481,7 @@ The `logging` feature works in this mode as in `passthrough`.
 
 #### `featherless` settings
 
-The `featherless` key is required in `featherless` mode and ignored with a startup warning in the other modes:
+The `featherless` key is required in `featherless` mode; an entry that omits it is not started and is reported with a startup warning. In the other modes the key is ignored with a startup warning:
 
 - `model_whitelist`: required. A non-empty list of exact model id strings (for example `moonshotai/Kimi-K2.6`). Only these models appear in `GET /v1/models` and are accepted in requests.
 - `concurrency_limit`: optional positive integer. Overrides the plan limit fetched from `GET /v1/plan`. Omit it to track the plan automatically.
@@ -556,11 +558,18 @@ Representative startup errors and what to check:
 - `Since v1.4 the configuration requires a top-level 'listeners' array. See the README for the migration guide.` — the configuration uses the pre-v1.4 format. Rewrite it into the `listeners` format described in [Configuration](#configuration).
 - `Configuration file was not found: {path}` — the configuration file is missing at that path. For host execution, check `NICHELLM_CONFIG_PATH`; in Docker, check the `config.jsonc` mount.
 - `Upstream API key environment variable '{api_key_env}' is not set.` — the variable named by `api_key_env` is not set. Export it in your shell, or set it in the `.env` file next to the Compose file.
+- `Skipped the listener on port {port} because mode '{mode}' requires a '{section}' section, which is missing from the configuration.` — the listener entry with that port is configured in a mode that requires its mode-specific key, but the key is missing, so that listener is not started. Add the missing key (see [Modes and features](#modes-and-features)) or change the entry's `mode` to `passthrough`. Other listeners start normally.
 - A setting seems to have no effect — unknown top-level keys, a mode-specific block that does not belong to the entry's `mode`, and `logging.file` settings while `logging.file.enabled` is `false` are ignored with a startup warning on the standard error output, prefixed with `[port N]` for per-listener warnings. Check the warning lines shown at startup and the key spelling (for example `timouts` instead of `timeouts`).
 
 Error messages the proxy generates are localized with `NICHELLM_LANGUAGE` (English by default, Japanese with `ja`).
 
 ## Changelog
+
+### v1.4.1 (2026-09-15)
+
+- Behavior change: a listener entry in the `grok-image`, `gemini-image`, or `featherless` mode whose mode-specific key (`grok_image`, `gemini_image`, or `featherless`) is missing is now skipped with a startup warning naming the port, mode, and missing key. Previously a missing `grok_image` or `gemini_image` key started the listener with defaults, and a missing `featherless` key crashed during startup. Other listeners start normally; when every listener is skipped, startup fails with a configuration error.
+- Added a ruff lint gate to `tools/check.sh`; ruff is now a development dependency pinned in `uv.lock`.
+- Added real-process startup smoke tests covering `/health`, the startup output, skip warnings, and SIGINT shutdown.
 
 ### v1.4.0 (2026-09-15)
 
