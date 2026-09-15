@@ -19,6 +19,9 @@ if ! cmp --silent "$tmp_mo" src/niche_llm_proxy/locales/ja/LC_MESSAGES/niche_llm
     exit 1
 fi
 
+echo "== ruff =="
+uv run --frozen --group dev ruff check src/
+
 echo "== pytest =="
 uv run --frozen --group dev pytest
 
