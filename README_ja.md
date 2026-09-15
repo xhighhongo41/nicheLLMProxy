@@ -28,13 +28,13 @@ export NICHELLM_LANGUAGE=ja  # 任意。既定は英語。
 docker compose up --build -d
 ```
 
-同梱の`docker-compose.yml`は、`api_key_env`が別の変数(例: `XAI_API_KEY`)を指す場合も`UPSTREAM_API_KEY`の設定を要求します。`UPSTREAM_API_KEY`に何らかの値を設定するか、`environment`の内容を自分の設定に合わせてください。`featherless`モードではAPIキー変数が一切不要です。`UPSTREAM_API_KEY`に任意の値を設定するか、`environment`の内容を調整してください。Composeファイルには`GET /health`を30秒間隔で確認するhealthcheckが含まれ、準備が整うと`docker compose ps`で`healthy`と表示されます。プロキシを確認します。
+同梱の`docker-compose.yml`は、`api_key_env`が別の変数(例: `XAI_API_KEY`)を指す場合も`UPSTREAM_API_KEY`の設定を要求します。`UPSTREAM_API_KEY`に何らかの値を設定するか、`environment`の内容を自分の設定に合わせてください。`featherless`モードではAPIキー変数が一切不要です。`UPSTREAM_API_KEY`に任意の値を設定するか、`environment`の内容を調整してください。Composeファイルには`GET /health`を30秒間隔で確認するhealthcheckが含まれます。healthcheckはマウントされた`config.json`から`listener.port`を読み取るため、ポートを変更しても正確に機能します。準備が整うと`docker compose ps`で`healthy`と表示されます。プロキシを確認します。
 
 ```bash
 curl http://127.0.0.1:8000/health
 ```
 
-Composeは`config.json`を`/app/config/config.json`へ読み取り専用でマウントし、サービス公開先を`127.0.0.1:8000`に限定します。プロキシ自身に認証がないため、この公開範囲は信頼できるネットワークに限ってください。ネットワーク内の他のマシンから接続するには、`ports`マッピングのホスト側バインドを変更します(例: `"8000:8000"`)。この変更も信頼できるネットワークでのみ行ってください。停止するには次を実行します。
+Composeは`config.json`を`/app/config/config.json`へ読み取り専用でマウントし、サービス公開先を既定で`127.0.0.1:8000`に限定します。`ports`マッピングの両側は`NICHELLM_PORT`環境変数(既定8000)に従います。プロキシ自身に認証がないため、この公開範囲は信頼できるネットワークに限ってください。ネットワーク内の他のマシンから接続するには、`ports`マッピングのホスト側バインドを変更します(例: `"8000:8000"`)。この変更も信頼できるネットワークでのみ行ってください。停止するには次を実行します。
 
 ```bash
 docker compose down
@@ -64,7 +64,7 @@ services:
   nichellm-proxy:
     image: xhighhongo41/nichellm-proxy:1.3.1
     ports:
-      - "127.0.0.1:8000:8000"
+      - "127.0.0.1:${NICHELLM_PORT:-8000}:${NICHELLM_PORT:-8000}"
     environment:
       NICHELLM_CONFIG_PATH: /app/config/config.json
       NICHELLM_LANGUAGE: ${NICHELLM_LANGUAGE:-en}
@@ -87,7 +87,7 @@ docker compose up -d
 curl http://127.0.0.1:8000/health
 ```
 
-この最小構成の例では、リポジトリ同梱の`docker-compose.yml`に含まれるhealthcheckを省いています。コンテナ起動直後は上の`curl`が失敗することがあります。その場合は数秒待って再試行してください。上記のAPIキー変数は任意参照です。プロキシは起動時に、`config.json`の`api_key_env`が指す変数が実際に設定されているかを検証します。名前付きログボリュームの挙動はソースからのCompose構成と同じで、`docker compose down -v`での削除も同様です。
+この最小構成の例では、リポジトリ同梱の`docker-compose.yml`に含まれるhealthcheckを省いています。コンテナ起動直後は上の`curl`が失敗することがあります。その場合は数秒待って再試行してください。`ports`マッピングの両側は`NICHELLM_PORT`環境変数(既定8000)に従うため、ポートを変更する場合は`listener.port`と同じ値に設定してください。上記のAPIキー変数は任意参照です。プロキシは起動時に、`config.json`の`api_key_env`が指す変数が実際に設定されているかを検証します。名前付きログボリュームの挙動はソースからのCompose構成と同じで、`docker compose down -v`での削除も同様です。
 
 ### uvによるローカル起動
 
@@ -230,9 +230,9 @@ uv sync
 |`timeouts.connect_seconds`|正の数|10.0|
 |`timeouts.read_seconds`|正の数または`null`|120.0|
 
-`timeouts`オブジェクト自体も省略でき、既定値のあるキーはすべて省略できます。`listener.port`を変更する場合は、Composeの`ports`マッピングのコンテナ側ポートも`listener.port`と一致するように更新してください(例: `"127.0.0.1:8001:8001"`)。同梱`docker-compose.yml`のhealthcheckはコンテナの8000番ポートを確認する固定値のため、`listener.port`が8000の間だけ正確に機能します。
+`timeouts`オブジェクト自体も省略でき、既定値のあるキーはすべて省略できます。`listener.port`を変更する場合は、起動時のComposeで`NICHELLM_PORT`環境変数に同じ値を設定してください(例: `NICHELLM_PORT=8001 docker compose up`)。これで公開ポートが一致します。同梱`docker-compose.yml`のhealthcheckはマウントされた`config.json`から`listener.port`を読み取るため、どのポートでも正確に機能します。
 
-モード固有のキー(`listener.grok_image`、`listener.gemini_image`、`listener.featherless`)と、任意の`listener.features`のloggingフィーチャーは[モードとフィーチャー](#モードとフィーチャー)で説明します。モード固有オブジェクト内の未知キー、不正な値、モード不一致の設定は、起動時の設定エラーとして拒否されます。モード固有オブジェクトとloggingフィーチャーの設定以外の場所の未知キーは黙って無視されるため、設定が効いていないように見える場合はキーのスペル(例: `timeouts`を`timouts`と書く)を確認してください。各モードの完全な例は`config.grok-image.example.json`、`config.gemini-image.example.json`、`config.featherless.example.json`にあります。
+モード固有のキー(`listener.grok_image`、`listener.gemini_image`、`listener.featherless`)と、任意の`listener.features`のloggingフィーチャーは[モードとフィーチャー](#モードとフィーチャー)で説明します。モード固有オブジェクト内の未知キーと不正な値は、起動時の設定エラーとして拒否されます。設定された`listener.mode`に属さないモード固有ブロック、最上位の未知キー、`logging.file.enabled`が`false`のときに無視される`logging.file`の設定は、起動時の警告として報告されて無視されます。プロキシは起動を続け、警告は1件ずつ標準エラー出力に表示されるため、設定が効いていないように見える場合はキーのスペル(例: `timeouts`を`timouts`と書く)と起動時の警告を確認してください。各モードの完全な例は`config.grok-image.example.json`、`config.gemini-image.example.json`、`config.featherless.example.json`にあります。
 
 ### 環境変数
 
@@ -268,7 +268,7 @@ Docker Composeでは、Composeファイルと同じ場所に置いた`.env`フ�
 
 ## モードとフィーチャー
 
-`listener.mode`には`passthrough`、`grok-image`、`gemini-image`、または`featherless`を指定できます。`GET /health`はどのモードでも動作します。上流エラーはステータスと本文をそのまま透過し、上流への接続・読取失敗は`passthrough`と同じ502/504応答を返します。
+`listener.mode`には`passthrough`、`grok-image`、`gemini-image`、または`featherless`を指定できます。`GET /health`はどのモードでも動作し、プロキシのバージョン・リスナーモード・有効なフィーチャー名を返します。起動時には、同じ情報が1行として標準出力に表示され、設定警告は1件ずつ標準エラー出力に表示されます。上流エラーはステータスと本文をそのまま透過し、上流への接続・読取失敗は`passthrough`と同じ502/504応答を返します。
 
 |モード・フィーチャー|機能|設定|
 |---|---|---|
@@ -560,7 +560,7 @@ curl -s 'https://api.featherless.ai/v1/models?per_page=100' | jq -r '.data[].id'
 
 - `設定ファイルが見つかりません: {path}`(英語: `Configuration file was not found: {path}`) — そのパスに設定JSONがありません。ホスト実行では`NICHELLM_CONFIG_PATH`を、Dockerでは`config.json`のマウントを確認してください。
 - `上流APIキーの環境変数 '{api_key_env}' が設定されていません。`(英語: `Upstream API key environment variable '{api_key_env}' is not set.`) — `api_key_env`が指す変数が設定されていません。シェルでexportするか、Composeファイルと同じ場所の`.env`ファイルに設定してください。
-- 設定が効いていないように見える — モード固有オブジェクトとloggingフィーチャーの設定以外の場所の未知キーは黙って無視されます。キーのスペル(例: `timeouts`を`timouts`と書く)を確認してください。
+- 設定が効いていないように見える — 最上位の未知キー、設定された`listener.mode`に属さないモード固有ブロック、`logging.file.enabled`が`false`のときの`logging.file`の設定は、起動時の警告とともに無視されます。起動時に表示される警告行と、キーのスペル(例: `timeouts`を`timouts`と書く)を確認してください。
 
 プロキシ自身が出すエラーメッセージは`NICHELLM_LANGUAGE`に応じてローカライズされます(既定は英語、`ja`で日本語)。
 

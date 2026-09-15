@@ -1,5 +1,14 @@
 # Changelog
 
+### v1.3.2 (2026-09-15)
+
+- Announced the startup configuration: the proxy now prints a single line to the standard output naming the proxy version, the listener mode, and the enabled features (stating `no features` when none are enabled), and prints each configuration warning to the standard error output.
+- Extended `GET /health` to report the proxy version, the listener mode, and the enabled feature names in the `version`, `mode`, and `features` fields, in addition to `status`.
+- Relaxed the handling of mode-mismatched settings, a behavior change: a mode-specific block (`listener.grok_image`, `listener.gemini_image`, or `listener.featherless`) that does not belong to the configured `listener.mode` is now warned about and ignored instead of failing startup with a configuration error.
+- Warned about ignored configuration instead of silently ignoring it: unknown top-level keys, and `logging.file` `path`, `max_bytes`, or `backup_count` set while `logging.file.enabled` is `false`, now produce a startup warning.
+- Changed the bundled `docker-compose.yml` healthcheck to read `listener.port` from the mounted `config.json` and probe that port, so it stays accurate for any listener port.
+- Parameterized the bundled `docker-compose.yml` `ports` mapping with the `NICHELLM_PORT` environment variable (default 8000); behavior is unchanged when the variable is not set.
+
 ### v1.3.1 (2026-09-12)
 
 - Changed the `featherless` mode concurrency queue from strict first-in-first-out to skip-queueing: a waiting request that does not fit the remaining budget no longer blocks later, smaller requests, while every queued request still answers HTTP 429 after `max_queue_wait_seconds`.
