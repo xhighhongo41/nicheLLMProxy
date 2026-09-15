@@ -1,5 +1,11 @@
 # Changelog
 
+### v1.4.1 (2026-09-15)
+
+- Behavior change: a listener entry in the `grok-image`, `gemini-image`, or `featherless` mode whose mode-specific key (`grok_image`, `gemini_image`, or `featherless`) is missing is now skipped with a startup warning naming the port, mode, and missing key. Previously a missing `grok_image` or `gemini_image` key started the listener with default settings, and a missing `featherless` key crashed the process during startup. Other listeners start normally; when every listener is skipped this way, startup fails with a configuration error listing the skipped ports.
+- Added a ruff lint gate to `tools/check.sh`: ruff is now a development dependency pinned in `uv.lock`, and CI runs the same check through `tools/check.sh`.
+- Added real-process startup smoke tests (`tests/test_startup_smoke.py`) covering the `/health` response, the startup output, skip warnings, and graceful SIGINT shutdown.
+
 ### v1.4.0 (2026-09-15)
 
 - Breaking configuration change: the top-level `listener`, `upstream`, and `timeouts` blocks were replaced by a required top-level `listeners` array whose entries each describe one port with its own complete settings (port, mode, upstream, timeouts, mode-specific blocks, and features). Pre-v1.4 files are rejected at startup with an error pointing to the README migration guide instead of being migrated automatically.
