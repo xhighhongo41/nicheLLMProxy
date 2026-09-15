@@ -8,7 +8,7 @@ from collections.abc import AsyncIterator, Callable, Mapping, Sequence
 import httpx
 from starlette.datastructures import Headers
 
-from niche_llm_proxy.config import ProxyConfig
+from niche_llm_proxy.config import ListenerRuntimeConfig
 from niche_llm_proxy.i18n import translate
 
 _HOP_BY_HOP_HEADERS = {
@@ -115,7 +115,7 @@ async def stream_response(
 
 
 def create_http_client(
-    config: ProxyConfig,
+    config: ListenerRuntimeConfig,
     transport: httpx.AsyncBaseTransport | None = None,
 ) -> httpx.AsyncClient:
     """Create an upstream HTTP client using the configured timeouts."""

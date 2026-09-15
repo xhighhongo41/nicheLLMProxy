@@ -12,7 +12,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import Response, StreamingResponse
 
 from niche_llm_proxy.app import create_app
-from niche_llm_proxy.config import ProxyConfig, load_config
+from niche_llm_proxy.config import ListenerRuntimeConfig, load_config
 
 
 class _BytesStream(httpx.AsyncByteStream):
@@ -35,39 +35,46 @@ def _logging_config(
     bodies: bool = True,
     max_bytes: int = 1_000_000,
     backup_count: int = 2,
-) -> ProxyConfig:
+) -> ListenerRuntimeConfig:
     """Create one file-only logging config suitable for deterministic assertions."""
 
     return load_config(
         write_config(
             {
-                "listener": {
-                    "port": 8000,
-                    "mode": "passthrough",
-                    "features": [
-                        {
-                            "name": "logging",
-                            "config": {
-                                "stdout": False,
-                                "file": {
-                                    "enabled": True,
-                                    "path": str(log_path),
-                                    "max_bytes": max_bytes,
-                                    "backup_count": backup_count,
+                "listeners": [
+                    {
+                        "port": 8000,
+                        "mode": "passthrough",
+                        "upstream": {
+                            "base_url": "https://upstream.example.test",
+                            "api_key_env": "UPSTREAM_API_KEY",
+                        },
+                        "timeouts": {"connect_seconds": 1, "read_seconds": 2},
+                        "features": [
+                            {
+                                "name": "logging",
+                                "config": {
+                                    "stdout": False,
+                                    "file": {
+                                        "enabled": True,
+                                        "path": str(log_path),
+                                        "max_bytes": max_bytes,
+                                        "backup_count": backup_count,
+                                    },
+                                    "capture": {"bodies": bodies, "max_body_bytes": 100},
+                                    "redaction": {
+                                        "additional_header_names": ["X-Customer-Secret"],
+                                        "additional_query_parameter_names": ["private"],
+                                        "additional_json_field_names": ["customer_secret"],
+                                    },
                                 },
-                                "capture": {"bodies": bodies, "max_body_bytes": 100},
-                                "redaction": {
-                                    "additional_header_names": ["X-Customer-Secret"],
-                                    "additional_query_parameter_names": ["private"],
-                                    "additional_json_field_names": ["customer_secret"],
-                                },
-                            },
-                        }
-                    ],
-                }
+                            }
+                        ],
+                    }
+                ]
             }
         )
-    )
+    ).listeners[0]
 
 
 def _read_records(app: FastAPI, log_path: Path) -> list[dict[str, object]]:

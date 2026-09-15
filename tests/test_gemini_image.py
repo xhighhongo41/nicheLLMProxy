@@ -13,7 +13,7 @@ import pytest
 from niche_llm_proxy.app import PROXY_VERSION, create_app
 from niche_llm_proxy.config import (
     GeminiImageConfig,
-    ProxyConfig,
+    ListenerRuntimeConfig,
     load_config,
 )
 from niche_llm_proxy.gemini_image import (
@@ -376,26 +376,23 @@ def _gemini_image_config(
     *,
     gemini_image: dict[str, object] | None = None,
     logging_config: dict[str, object] | None = None,
-) -> ProxyConfig:
+) -> ListenerRuntimeConfig:
     """Create a gemini-image mode proxy configuration for end-to-end tests."""
 
     monkeypatch.setenv("GEMINI_API_KEY", "gemini-upstream-secret")
-    listener: dict[str, object] = {"port": 8000, "mode": "gemini-image"}
+    listener: dict[str, object] = {
+        "port": 8000,
+        "mode": "gemini-image",
+        "upstream": {
+            "base_url": "https://upstream.example.test",
+            "api_key_env": "GEMINI_API_KEY",
+        },
+    }
     if gemini_image is not None:
         listener["gemini_image"] = gemini_image
     if logging_config is not None:
         listener["features"] = [{"name": "logging", "config": logging_config}]
-    return load_config(
-        write_config(
-            {
-                "listener": listener,
-                "upstream": {
-                    "base_url": "https://upstream.example.test",
-                    "api_key_env": "GEMINI_API_KEY",
-                },
-            }
-        )
-    )
+    return load_config(write_config({"listeners": [listener]})).listeners[0]
 
 
 _UPSTREAM_IMAGE_RESPONSE = (

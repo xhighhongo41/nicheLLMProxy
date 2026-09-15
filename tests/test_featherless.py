@@ -15,7 +15,11 @@ import pytest
 from fastapi import Request
 
 from niche_llm_proxy.app import PROXY_VERSION, _acquire_or_disconnect, create_app
-from niche_llm_proxy.config import FeatherlessConfig, ProxyConfig, load_config
+from niche_llm_proxy.config import (
+    FeatherlessConfig,
+    ListenerRuntimeConfig,
+    load_config,
+)
 from niche_llm_proxy.featherless import (
     ConcurrencyGate,
     FeatherlessRuntime,
@@ -218,25 +222,27 @@ def _request(
 def _featherless_config(
     write_config: Callable[[dict[str, object] | None], Path],
     *,
-    model_whitelist: tuple[str, ...] = (KIMI, QWEN),
+model_whitelist: tuple[str, ...] = (KIMI, QWEN),
     **featherless: object,
-) -> ProxyConfig:
+) -> ListenerRuntimeConfig:
     """Return valid featherless mode configuration."""
+
     listener_featherless: dict[str, object] = {"model_whitelist": list(model_whitelist)}
     listener_featherless.update(featherless)
     return load_config(
         write_config(
             {
-                "listener": {
-                    "port": 8000,
-                    "mode": "featherless",
-                    "featherless": listener_featherless,
-                },
-                "upstream": {"base_url": BASE_URL},
+                "listeners": [
+                    {
+                        "port": 8000,
+                        "mode": "featherless",
+                        "featherless": listener_featherless,
+                        "upstream": {"base_url": BASE_URL},
+                    }
+                ]
             }
         )
-    )
-
+    ).listeners[0]
 
 class TestClassifyRequest:
     """Route and method classification for the featherless mode."""

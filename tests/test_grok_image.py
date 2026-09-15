@@ -13,7 +13,7 @@ import pytest
 from niche_llm_proxy.app import PROXY_VERSION, create_app
 from niche_llm_proxy.config import (
     GrokImageConfig,
-    ProxyConfig,
+    ListenerRuntimeConfig,
     load_config,
 )
 from niche_llm_proxy.grok_image import (
@@ -382,26 +382,23 @@ def _grok_image_config(
     *,
     grok_image: dict[str, object] | None = None,
     logging_config: dict[str, object] | None = None,
-) -> ProxyConfig:
+) -> ListenerRuntimeConfig:
     """Create a grok-image mode proxy configuration for end-to-end tests."""
 
     monkeypatch.setenv("XAI_API_KEY", "xai-upstream-secret")
-    listener: dict[str, object] = {"port": 8000, "mode": "grok-image"}
+    listener: dict[str, object] = {
+        "port": 8000,
+        "mode": "grok-image",
+        "upstream": {
+            "base_url": "https://upstream.example.test",
+            "api_key_env": "XAI_API_KEY",
+        },
+    }
     if grok_image is not None:
         listener["grok_image"] = grok_image
     if logging_config is not None:
         listener["features"] = [{"name": "logging", "config": logging_config}]
-    return load_config(
-        write_config(
-            {
-                "listener": listener,
-                "upstream": {
-                    "base_url": "https://upstream.example.test",
-                    "api_key_env": "XAI_API_KEY",
-                },
-            }
-        )
-    )
+    return load_config(write_config({"listeners": [listener]})).listeners[0]
 
 
 _UPSTREAM_IMAGE_RESPONSE = (

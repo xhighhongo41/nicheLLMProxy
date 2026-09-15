@@ -24,6 +24,21 @@ msgstr "設定JSONを読み込めません。"
 msgid "Top-level configuration JSON must be an object."
 msgstr "設定JSONの最上位はオブジェクトである必要があります。"
 
+msgid "Since v1.4 the configuration requires a top-level 'listeners' array. See the README for the migration guide."
+msgstr "v1.4以降の設定には最上位の 'listeners' 配列が必要です。移行手順はREADMEを参照してください。"
+
+msgid "'listeners' must be a non-empty array of listener objects."
+msgstr "'listeners' は空でないリスナーオブジェクトの配列である必要があります。"
+
+msgid "Each 'listeners' item must be an object."
+msgstr "'listeners' の各項目はオブジェクトである必要があります。"
+
+msgid "'listeners' contains duplicate ports: {ports}."
+msgstr "'listeners' に重複したポートがあります: {ports}。"
+
+msgid "Multiple listeners write protocol logs to the same file: {paths}."
+msgstr "複数のリスナーが同じファイルへプロトコルログを書き込みます: {paths}。"
+
 msgid "Configuration item '{key}' must be an object."
 msgstr "設定項目 '{key}' はオブジェクトである必要があります。"
 
@@ -163,11 +178,17 @@ msgstr "'gemini-image' モードでは、リクエスト本文はJSONオブジ�
 msgid "'response_format' must be 'b64_json' in 'gemini-image' mode."
 msgstr "'gemini-image' モードでは、'response_format' は 'b64_json' である必要があります。"
 
-msgid "nicheLLM Proxy {version} starting in '{mode}' mode with features: {features}."
-msgstr "nicheLLM Proxy {version} を '{mode}' モードで起動します。フィーチャー: {features}。"
+msgid "nicheLLM Proxy {version} starting with {count} listener."
+msgstr "nicheLLM Proxy {version} を起動します。リスナー数: {count}。"
 
-msgid "nicheLLM Proxy {version} starting in '{mode}' mode with no features."
-msgstr "nicheLLM Proxy {version} を '{mode}' モードで起動します。フィーチャーはありません。"
+msgid "nicheLLM Proxy {version} starting with {count} listeners."
+msgstr "nicheLLM Proxy {version} を起動します。リスナー数: {count}。"
+
+msgid "  - port {port}: mode '{mode}' with features: {features}."
+msgstr "  - ポート {port}: モード '{mode}'、フィーチャー: {features}。"
+
+msgid "  - port {port}: mode '{mode}' with no features."
+msgstr "  - ポート {port}: モード '{mode}'、フィーチャーはありません。"
 
 msgid "Unknown top-level configuration keys were ignored: {keys}."
 msgstr "未知の最上位設定キーは無視されました: {keys}。"

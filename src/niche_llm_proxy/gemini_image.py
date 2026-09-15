@@ -10,7 +10,7 @@ import httpx
 from fastapi import Request
 from fastapi.responses import Response
 
-from niche_llm_proxy.config import GeminiImageConfig, ProxyConfig
+from niche_llm_proxy.config import GeminiImageConfig, ListenerRuntimeConfig
 from niche_llm_proxy.i18n import translate
 from niche_llm_proxy.image_relay import (
     TransformError,
@@ -139,7 +139,7 @@ def transform_request_body(body: bytes, settings: GeminiImageConfig | None) -> b
 
 
 async def handle_gemini_image_generations(
-    config: ProxyConfig,
+    config: ListenerRuntimeConfig,
     exchange: ExchangeLog | None,
     upstream_transport: httpx.AsyncBaseTransport | None,
     request: Request,
@@ -161,7 +161,7 @@ async def handle_gemini_image_generations(
 
 
 async def handle_gemini_models(
-    config: ProxyConfig,
+    config: ListenerRuntimeConfig,
     exchange: ExchangeLog | None,
     upstream_transport: httpx.AsyncBaseTransport | None,
     request: Request,

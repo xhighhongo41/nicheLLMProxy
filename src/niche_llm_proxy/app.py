@@ -10,7 +10,7 @@ import httpx
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
-from niche_llm_proxy.config import ProxyConfig
+from niche_llm_proxy.config import ListenerRuntimeConfig
 from niche_llm_proxy.featherless import (
     ConcurrencyGate,
     FeatherlessRuntime,
@@ -72,7 +72,7 @@ _REJECT_ROUTE_EVENTS = {
 
 
 def create_app(
-    config: ProxyConfig,
+    config: ListenerRuntimeConfig,
     upstream_transport: httpx.AsyncBaseTransport | None = None,
 ) -> FastAPI:
     """Create a passthrough ASGI application for the supplied configuration."""
@@ -195,7 +195,7 @@ def create_app(
 
 
 async def _relay_upstream(
-    config: ProxyConfig,
+    config: ListenerRuntimeConfig,
     request: Request,
     exchange: ExchangeLog | None,
     upstream_transport: httpx.AsyncBaseTransport | None,
@@ -347,7 +347,7 @@ async def _acquire_or_disconnect(
 
 
 async def _handle_featherless_operation(
-    config: ProxyConfig,
+    config: ListenerRuntimeConfig,
     runtime: FeatherlessRuntime,
     logging_runtime: LoggingRuntime | None,
     request: Request,
