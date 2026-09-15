@@ -1,0 +1,22 @@
+{
+  // Configuration for nicheLLM Proxy (v1.4 schema), Google Gemini image mode.
+  // Chat-completions requests are converted to Gemini image generation.
+  "listeners": [
+    {
+      "port": 8000,
+      "mode": "gemini-image",
+      "gemini_image": {
+        "default_model": "gemini-3-pro-image-preview",
+        "aspect_ratio": "1:1"
+      },
+      "upstream": {
+        "base_url": "https://generativelanguage.googleapis.com",
+        "api_key_env": "GEMINI_API_KEY"
+      },
+      "timeouts": {
+        "connect_seconds": 10,
+        "read_seconds": 120
+      }
+    }
+  ]
+}

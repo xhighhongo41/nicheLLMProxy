@@ -1,6 +1,6 @@
 # nicheLLM Proxy
 
-nicheLLM Proxyは、OpenAI互換クライアントと上流LLMプロバイダーの間でHTTPリクエストとレスポンスを中継します。`passthrough`モードは変換せずに転送し、v1.1で追加された`grok-image`モードはGrok(xAI)の画像生成をOpenAI互換インターフェースとして提供し、v1.2で追加された`gemini-image`モードはGoogle Geminiの画像生成をOpenAI互換インターフェースとして提供し、v1.3で追加された`featherless`モードはfeatherless.aiをモデルホワイトリストとAPIキーごとの同時リクエストキューイングで提供します。いずれのモードでも、信頼できるネットワーク内での単一listener運用と、opt-inの構造化プロトコルログを利用できます。
+nicheLLM Proxyは、OpenAI互換クライアントと上流LLMプロバイダーの間でHTTPリクエストとレスポンスを中継します。`passthrough`モードは変換せずに転送し、v1.1で追加された`grok-image`モードはGrok(xAI)の画像生成をOpenAI互換インターフェースとして提供し、v1.2で追加された`gemini-image`モードはGoogle Geminiの画像生成をOpenAI互換インターフェースとして提供し、v1.3で追加された`featherless`モードはfeatherless.aiをモデルホワイトリストとAPIキーごとの同時リクエストキューイングで提供します。v1.4からは、1プロセスで複数のリスナーを異なるモードで並行に待ち受けられます。いずれのモードも信頼できるネットワーク内での動作を前提とし、opt-inの構造化プロトコルログに対応します。
 
 [English README](README.md)
 
@@ -12,29 +12,29 @@ nicheLLM Proxyは、OpenAI互換クライアントと上流LLMプロバイダー
 - ホスト実行にはPython 3.11以降と[uv](https://docs.astral.sh/uv/)。
 - リポジトリのcloneと更新にはGit。
 
-どのセットアップでも、上流LLMプロバイダーのアカウントとAPIキーが必要です。設定JSONファイルについては[設定](#設定)を参照してください。`featherless`モードではプロキシ自身はAPIキーを保持せず、各クライアントが自分の`Authorization`ヘッダーを送ります([featherlessモード](#featherlessモード)を参照)。
+どのセットアップでも、上流LLMプロバイダーのアカウントとAPIキーが必要です。設定ファイルについては[設定](#設定)を参照してください。`featherless`モードではプロキシ自身はAPIキーを保持せず、各クライアントが自分の`Authorization`ヘッダーを送ります([featherlessモード](#featherlessモード)を参照)。
 
 ### Docker Composeによる起動(ソースから)
 
-DockerイメージにはAPIキーも設定JSONも含まれません。起動前にホスト上で作成してください。
+DockerイメージにはAPIキーも設定ファイルも含まれません。起動前にホスト上で作成してください。
 
 ```bash
 git clone https://github.com/xhighhongo41/nicheLLMProxy.git
 cd nicheLLMProxy
-cp config.example.json config.json
-# OpenAI以外の上流を使う場合は、config.jsonのupstream.base_urlを変更する。
+cp config.example.jsonc config.jsonc
+# OpenAI以外の上流を使う場合は、config.jsoncのupstream.base_urlを変更する。
 export UPSTREAM_API_KEY='your-upstream-api-key'
 export NICHELLM_LANGUAGE=ja  # 任意。既定は英語。
 docker compose up --build -d
 ```
 
-同梱の`docker-compose.yml`は、`api_key_env`が別の変数(例: `XAI_API_KEY`)を指す場合も`UPSTREAM_API_KEY`の設定を要求します。`UPSTREAM_API_KEY`に何らかの値を設定するか、`environment`の内容を自分の設定に合わせてください。`featherless`モードではAPIキー変数が一切不要です。`UPSTREAM_API_KEY`に任意の値を設定するか、`environment`の内容を調整してください。Composeファイルには`GET /health`を30秒間隔で確認するhealthcheckが含まれます。healthcheckはマウントされた`config.json`から`listener.port`を読み取るため、ポートを変更しても正確に機能します。準備が整うと`docker compose ps`で`healthy`と表示されます。プロキシを確認します。
+同梱の`docker-compose.yml`は、`api_key_env`が別の変数(例: `XAI_API_KEY`)を指す場合も`UPSTREAM_API_KEY`の設定を要求します。`UPSTREAM_API_KEY`に何らかの値を設定するか、`environment`の内容を自分の設定に合わせてください。`featherless`モードではAPIキー変数が一切不要です。`UPSTREAM_API_KEY`に任意の値を設定するか、`environment`の内容を調整してください。Composeファイルには`GET /health`を30秒間隔で確認するhealthcheckが含まれます。healthcheckはマウントされた`config.jsonc`からリスナーポートを読み取り、全リスナーポートを順に確認するため、どのポートの組み合わせでも正確に機能します。準備が整うと`docker compose ps`で`healthy`と表示されます。プロキシを確認します。
 
 ```bash
 curl http://127.0.0.1:8000/health
 ```
 
-Composeは`config.json`を`/app/config/config.json`へ読み取り専用でマウントし、サービス公開先を既定で`127.0.0.1:8000`に限定します。`ports`マッピングの両側は`NICHELLM_PORT`環境変数(既定8000)に従います。プロキシ自身に認証がないため、この公開範囲は信頼できるネットワークに限ってください。ネットワーク内の他のマシンから接続するには、`ports`マッピングのホスト側バインドを変更します(例: `"8000:8000"`)。この変更も信頼できるネットワークでのみ行ってください。停止するには次を実行します。
+Composeは`config.jsonc`を`/app/config/config.jsonc`へ読み取り専用でマウントし、サービス公開先を既定で`127.0.0.1:8000`に限定します。複数リスナー構成では、リスナーポートごとに1つの`ports`マッピングを追加してください(例: `"127.0.0.1:8001:8001"`)。プロキシ自身に認証がないため、この公開範囲は信頼できるネットワークに限ってください。ネットワーク内の他のマシンから接続するには、`ports`マッピングのホスト側バインドを変更します(例: `"8000:8000"`)。この変更も信頼できるネットワークでのみ行ってください。停止するには次を実行します。
 
 ```bash
 docker compose down
@@ -57,22 +57,23 @@ docker compose exec nichellm-proxy sh -c 'ls -lh /var/log/nichellm'
 docker pull xhighhongo41/nichellm-proxy:1.3.2
 ```
 
-イメージにはAPIキーも設定JSONも含まれません。Composeファイルと同じ場所に、設定で使うAPIキー変数を記した`.env`ファイルを作成し([APIキー管理](#apiキー管理)を参照)、作業ディレクトリに`config.json`([設定](#設定)の完全な例から始めてください)と次のComposeファイルを配置します。
+イメージにはAPIキーも設定ファイルも含まれません。Composeファイルと同じ場所に、設定で使うAPIキー変数を記した`.env`ファイルを作成し([APIキー管理](#apiキー管理)を参照)、作業ディレクトリに`config.jsonc`([設定](#設定)の完全な例から始めてください)と次のComposeファイルを配置します。
 
 ```yaml
 services:
   nichellm-proxy:
     image: xhighhongo41/nichellm-proxy:1.3.2
+    # config.jsoncで定義したリスナーポートごとに1つのマッピングを追加。
     ports:
-      - "127.0.0.1:${NICHELLM_PORT:-8000}:${NICHELLM_PORT:-8000}"
+      - "127.0.0.1:8000:8000"
     environment:
-      NICHELLM_CONFIG_PATH: /app/config/config.json
+      NICHELLM_CONFIG_PATH: /app/config/config.jsonc
       NICHELLM_LANGUAGE: ${NICHELLM_LANGUAGE:-en}
       UPSTREAM_API_KEY: ${UPSTREAM_API_KEY:-}
       XAI_API_KEY: ${XAI_API_KEY:-}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
     volumes:
-      - ./config.json:/app/config/config.json:ro
+      - ./config.jsonc:/app/config/config.jsonc:ro
       - nichellm-proxy-logs:/var/log/nichellm
     restart: unless-stopped
 
@@ -87,7 +88,7 @@ docker compose up -d
 curl http://127.0.0.1:8000/health
 ```
 
-この最小構成の例では、リポジトリ同梱の`docker-compose.yml`に含まれるhealthcheckを省いています。コンテナ起動直後は上の`curl`が失敗することがあります。その場合は数秒待って再試行してください。`ports`マッピングの両側は`NICHELLM_PORT`環境変数(既定8000)に従うため、ポートを変更する場合は`listener.port`と同じ値に設定してください。上記のAPIキー変数は任意参照です。プロキシは起動時に、`config.json`の`api_key_env`が指す変数が実際に設定されているかを検証します。名前付きログボリュームの挙動はソースからのCompose構成と同じで、`docker compose down -v`での削除も同様です。
+この最小構成の例では、リポジトリ同梱の`docker-compose.yml`に含まれるhealthcheckを省いています。コンテナ起動直後は上の`curl`が失敗することがあります。その場合は数秒待って再試行してください。`config.jsonc`で定義したリスナーポートごとに、`ports`マッピングを1つずつ追加してください。上記のAPIキー変数は任意参照です。プロキシは起動時に、各リスナー項目の`upstream.api_key_env`が指す変数が実際に設定されているかを検証します。名前付きログボリュームの挙動はソースからのCompose構成と同じで、`docker compose down -v`での削除も同様です。
 
 ### uvによるローカル起動
 
@@ -96,10 +97,10 @@ curl http://127.0.0.1:8000/health
 ```bash
 git clone https://github.com/xhighhongo41/nicheLLMProxy.git
 cd nicheLLMProxy
-cp config.example.json config.json
-# OpenAI以外の上流を使う場合は、config.jsonのupstream.base_urlを変更する。
+cp config.example.jsonc config.jsonc
+# OpenAI以外の上流を使う場合は、config.jsoncのupstream.base_urlを変更する。
 export UPSTREAM_API_KEY='your-upstream-api-key'
-export NICHELLM_CONFIG_PATH="$PWD/config.json"
+export NICHELLM_CONFIG_PATH="$PWD/config.jsonc"
 export NICHELLM_LANGUAGE=ja  # 任意。既定は英語。
 uv sync
 uv run niche-llm-proxy
@@ -142,7 +143,7 @@ print(response.choices[0].message.content)
 
 ### 既存環境のアップデート
 
-v1.3.2では設定JSONの形式は変更されていません。既存の`config.json`はそのまま動作します。v1.3.2では、モードに合わない設定ブロックを起動時エラーとして拒否する代わりに警告して無視します([モードとフィーチャー](#モードとフィーチャー)を参照)。
+v1.4.0では設定ファイルの形式が変わります。最上位の`listener`、`upstream`、`timeouts`ブロックは必須の最上位`listeners`配列へ置き換えられ、v1.4より前のファイルは起動時にエラー `Since v1.4 the configuration requires a top-level 'listeners' array. See the README for the migration guide.` で拒否されます。移行では、`port`と`mode`を`upstream`・`timeouts`ブロックとともに`listeners`配列の1項目へ移動してください(詳細は[設定](#設定))。手を加えていない既存の`config.json`は既定パスのフォールバックで読み込まれますが、書き換えるまで起動できません。
 
 ソースからDocker Composeで実行している場合:
 
@@ -169,51 +170,56 @@ uv sync
 
 ### 設定ファイル
 
-プロキシは、必須の設定JSONファイルを1つ読み込みます。4つのテンプレートがリポジトリに含まれます(公開イメージだけで実行する場合も、GitHubから取得してください)。
+プロキシは、必須の設定ファイルを1つ読み込みます。5つのテンプレートがリポジトリに含まれます(公開イメージだけで実行する場合も、GitHubから取得してください)。
 
-- `config.example.json` — `passthrough`モード(下記)
-- `config.grok-image.example.json` — `grok-image`モード
-- `config.gemini-image.example.json` — `gemini-image`モード
-- `config.featherless.example.json` — `featherless`モード
+- `config.example.jsonc` — `passthrough`モード(下記)
+- `config.multi-listener.example.jsonc` — 4モード全部をポート8000〜8003で
+- `config.grok-image.example.jsonc` — `grok-image`モード
+- `config.gemini-image.example.jsonc` — `gemini-image`モード
+- `config.featherless.example.jsonc` — `featherless`モード
 
-コンテナ内での既定パスは`/app/config/config.json`です。上記のDocker Compose手順では、ローカルの`config.json`をそこへマウントします。ホスト実行では`NICHELLM_CONFIG_PATH`でパスを指定してください。
+コンテナ内での既定パスは`/app/config/config.jsonc`を優先し、JSONCファイルが存在しない場合は`/app/config/config.json`へフォールバックします。上記のDocker Compose手順では、ローカルの`config.jsonc`を優先パスへマウントします。ホスト実行では`NICHELLM_CONFIG_PATH`でパスを指定してください。
+
+設定ファイルはJSONCに対応します。`//`の行コメントと`/* */`のブロックコメントは拡張子にかかわらず利用でき、文字列値の中のコメント記号(例: URL内の`//`)は保持されます。設定には必須の最上位`listeners`配列が1つあります。各項目は1つの完全で独立したリスナーで、1つのポートを束ね、独自の`mode`、`upstream`、`timeouts`、任意のモード固有ブロック、任意の`features`を持ちます。1プロセスが全項目を並行に待ち受けます。`config.multi-listener.example.jsonc`は4モード全部をポート8000〜8003で組み合わせた例です。ポートは一意である必要があり、重複は設定エラーとして拒否されます。
 
 `passthrough`の設定例:
 
 ```json
 {
-  "listener": {
-    "port": 8000,
-    "mode": "passthrough",
-    "features": [
-      {
-        "name": "logging",
-        "config": {
-          "stdout": true,
-          "file": {
-            "enabled": true,
-            "path": "/var/log/nichellm/proxy.jsonl",
-            "max_bytes": 10485760,
-            "backup_count": 5
-          },
-          "capture": {"bodies": false, "max_body_bytes": 1048576},
-          "redaction": {
-            "additional_header_names": [],
-            "additional_query_parameter_names": [],
-            "additional_json_field_names": []
+  "listeners": [
+    {
+      "port": 8000,
+      "mode": "passthrough",
+      "upstream": {
+        "base_url": "https://api.openai.com",
+        "api_key_env": "UPSTREAM_API_KEY"
+      },
+      "timeouts": {
+        "connect_seconds": 10,
+        "read_seconds": 120
+      },
+      "features": [
+        {
+          "name": "logging",
+          "config": {
+            "stdout": true,
+            "file": {
+              "enabled": true,
+              "path": "/var/log/nichellm/proxy.jsonl",
+              "max_bytes": 10485760,
+              "backup_count": 5
+            },
+            "capture": {"bodies": false, "max_body_bytes": 1048576},
+            "redaction": {
+              "additional_header_names": [],
+              "additional_query_parameter_names": [],
+              "additional_json_field_names": []
+            }
           }
         }
-      }
-    ]
-  },
-  "upstream": {
-    "base_url": "https://api.openai.com",
-    "api_key_env": "UPSTREAM_API_KEY"
-  },
-  "timeouts": {
-    "connect_seconds": 10,
-    "read_seconds": 120
-  }
+      ]
+    }
+  ]
 }
 ```
 
@@ -223,34 +229,34 @@ uv sync
 
 |キー|型・制約|既定値|
 |---|---|---|
-|`listener.port`|1〜65535の整数(必須)|—|
-|`listener.mode`|`passthrough`、`grok-image`、`gemini-image`、または`featherless`(必須)|—|
-|`upstream.base_url`|query・fragmentを含まないhttp/https URL(必須)|—|
-|`upstream.api_key_env`|空でない文字列。APIキーを保持する環境変数の名前(`featherless`モード以外は必須。`featherless`モードでは指定自体がエラー)|—|
-|`timeouts.connect_seconds`|正の数|10.0|
-|`timeouts.read_seconds`|正の数または`null`|120.0|
+|`listeners[].port`|1〜65535の整数(必須)|—|
+|`listeners[].mode`|`passthrough`、`grok-image`、`gemini-image`、または`featherless`(必須)|—|
+|`listeners[].upstream.base_url`|query・fragmentを含まないhttp/https URL(必須)|—|
+|`listeners[].upstream.api_key_env`|空でない文字列。APIキーを保持する環境変数の名前(`featherless`モード以外は必須。`featherless`モードでは指定自体がエラー)|—|
+|`listeners[].timeouts.connect_seconds`|正の数|10.0|
+|`listeners[].timeouts.read_seconds`|正の数または`null`|120.0|
 
-`timeouts`オブジェクト自体も省略でき、既定値のあるキーはすべて省略できます。`listener.port`を変更する場合は、起動時のComposeで`NICHELLM_PORT`環境変数に同じ値を設定してください(例: `NICHELLM_PORT=8001 docker compose up`)。これで公開ポートが一致します。同梱`docker-compose.yml`のhealthcheckはマウントされた`config.json`から`listener.port`を読み取るため、どのポートでも正確に機能します。
+`timeouts`オブジェクト自体も省略でき、既定値のあるキーはすべて省略できます。複数のリスナーが同じ`upstream`設定を繰り返して、1つの上流プロバイダーを共有できます。同梱`docker-compose.yml`のhealthcheckはマウントされた`config.jsonc`からリスナーポートを読み取り、それぞれを確認するため、どのポートの組み合わせでも正確に機能します。
 
-モード固有のキー(`listener.grok_image`、`listener.gemini_image`、`listener.featherless`)と、任意の`listener.features`のloggingフィーチャーは[モードとフィーチャー](#モードとフィーチャー)で説明します。モード固有オブジェクト内の未知キーと不正な値は、起動時の設定エラーとして拒否されます。設定された`listener.mode`に属さないモード固有ブロック、最上位の未知キー、`logging.file.enabled`が`false`のときに無視される`logging.file`の設定は、起動時の警告として報告されて無視されます。プロキシは起動を続け、警告は1件ずつ標準エラー出力に表示されるため、設定が効いていないように見える場合はキーのスペル(例: `timeouts`を`timouts`と書く)と起動時の警告を確認してください。各モードの完全な例は`config.grok-image.example.json`、`config.gemini-image.example.json`、`config.featherless.example.json`にあります。
+モード固有のキー(リスナー項目内の`grok_image`、`gemini_image`、`featherless`)と、任意の`features`のloggingフィーチャーは[モードとフィーチャー](#モードとフィーチャー)で説明します。モード固有オブジェクト内の未知キーと不正な値は、起動時の設定エラーとして拒否されます。項目の`mode`に属さないモード固有ブロック、最上位の未知キー、`logging.file.enabled`が`false`のときに無視される`logging.file`の設定は、起動時の警告として報告されて無視されます。プロキシは起動を続け、警告は1件ずつ標準エラー出力に表示されるため、設定が効いていないように見える場合はキーのスペル(例: `timeouts`を`timouts`と書く)と起動時の警告を確認してください。各モードの完全な例は`config.grok-image.example.jsonc`、`config.gemini-image.example.jsonc`、`config.featherless.example.jsonc`にあります。
 
 ### 環境変数
 
 |環境変数|必須|用途|
 |---|---|---|
-|`UPSTREAM_API_KEY`|はい|上流プロバイダーへ送るAPIキー。`api_key_env`と同じ名前にします。|
+|`UPSTREAM_API_KEY`|はい|上流プロバイダーへ送るAPIキー。利用するリスナー項目の`api_key_env`と同じ名前にします。|
 |`XAI_API_KEY`|いいえ|`grok-image`モードの設定例がxAIへ送るAPIキー。`api_key_env`と同じ名前にします。|
 |`GEMINI_API_KEY`|いいえ|`gemini-image`モードの設定例がGoogleへ送るAPIキー。`api_key_env`と同じ名前にします。|
-|`NICHELLM_CONFIG_PATH`|いいえ|設定JSONへのパス。既定値は`/app/config/config.json`です。ホスト実行時は指定してください。|
+|`NICHELLM_CONFIG_PATH`|いいえ|設定ファイルへのパス。未指定の場合、コンテナでは`/app/config/config.jsonc`を既定とし、JSONCファイルが存在しない場合は`/app/config/config.json`へフォールバックします。ホスト実行時は指定してください。指定した場合はそのパスのみを利用し、フォールバックしません。|
 |`NICHELLM_LANGUAGE`|いいえ|プロキシ自身が生成するメッセージの言語。`en`(既定)または`ja`を指定します。`ja-JP`のような値は`ja`として扱い、未対応値は英語へフォールバックします。|
 
-3つのAPIキー変数は、リポジトリ同梱の設定例で`api_key_env`が参照している名前です。変数名自体は設定可能で、`api_key_env`が指名した変数はプロキシの起動前に設定しておく必要があります。`featherless`モードはAPIキー環境変数を一切読みません。各クライアントが自分の`Authorization`ヘッダーを送り、プロキシはそれをfeatherless.aiへ変更せず中継します。
+3つのAPIキー変数は、リポジトリ同梱の設定例で`api_key_env`が参照している名前です。変数名自体は設定可能で、`api_key_env`が指名した変数はプロキシの起動前に設定しておく必要があります。各リスナー項目は異なる変数を指名できるため、1プロセスで複数のプロバイダーを扱えます。`featherless`モードはAPIキー環境変数を一切読みません。各クライアントが自分の`Authorization`ヘッダーを送り、プロキシはそれをfeatherless.aiへ変更せず中継します。
 
-プロキシが読み込む環境変数はこれだけです。環境変数で設定JSONを丸ごと置換・上書きすることはできません。
+プロキシが読み込む環境変数はこれだけです。環境変数で設定ファイルを丸ごと置換・上書きすることはできません。
 
 ### APIキー管理
 
-設定JSONにはAPIキーの値を書かず、値を持つ環境変数の名前(`upstream.api_key_env`)だけを指定し、実際の値は環境に設定してください。
+設定ファイルにはAPIキーの値を書かず、値を持つ環境変数の名前(リスナー項目の`upstream.api_key_env`)だけを指定し、実際の値は環境に設定してください。
 
 ```bash
 export UPSTREAM_API_KEY='your-upstream-api-key'
@@ -262,21 +268,21 @@ Docker Composeでは、Composeファイルと同じ場所に置いた`.env`フ�
 
 ### タイムアウト
 
-`connect_seconds`は上流への接続確立を待つ時間を制限します。`read_seconds`は上流から次のバイトを受け取るまでの待機時間を制限するものであり、継続してデータが届くレスポンス全体の所要時間を制限するものではありません。HTTP SSEと通常HTTPレスポンスでは、設定したタイムアウトを維持します。`read_seconds`に`null`を指定すると読み取りタイムアウトを無効化し、上流応答を無制限に待ちます。`connect_seconds`は常に正の数である必要があります。
+各リスナー項目は独自の任意`timeouts`ブロックを持ちます。`connect_seconds`は上流への接続確立を待つ時間を制限します。`read_seconds`は上流から次のバイトを受け取るまでの待機時間を制限するものであり、継続してデータが届くレスポンス全体の所要時間を制限するものではありません。HTTP SSEと通常HTTPレスポンスでは、設定したタイムアウトを維持します。`read_seconds`に`null`を指定すると読み取りタイムアウトを無効化し、上流応答を無制限に待ちます。`connect_seconds`は常に正の数である必要があります。
 
 バックグラウンドレスポンス、batch、fine-tuning jobでは、1本のプロキシ接続を無期限に保持する代わりに、jobを作成した後にクライアントからステータスをポーリングしてください。RealtimeとResponses WebSocketのワークロードには、双方向通信の別設計が必要であり、対応しません。
 
 ## モードとフィーチャー
 
-`listener.mode`には`passthrough`、`grok-image`、`gemini-image`、または`featherless`を指定できます。`GET /health`はどのモードでも動作し、プロキシのバージョン・リスナーモード・有効なフィーチャー名を返します。起動時には、同じ情報が1行として標準出力に表示され、設定警告は1件ずつ標準エラー出力に表示されます。上流エラーはステータスと本文をそのまま透過し、上流への接続・読取失敗は`passthrough`と同じ502/504応答を返します。
+各リスナー項目の`mode`には`passthrough`、`grok-image`、`gemini-image`、または`featherless`を指定でき、1プロセスが設定された全リスナーを並行に待ち受けます。`GET /health`はどのモードでも動作し、各ポートが自身の`status`、`version`、`mode`、有効なフィーチャー名を返します。起動時には、プロキシのバージョンとリスナー数を示す集計行を1行、続けて各リスナーのポート・モード・有効なフィーチャー名を示す行を1行ずつ標準出力へ表示し、設定警告は1件ずつ標準エラー出力に表示します。リスナー個別の警告には`[port N]`接頭辞が付きます。上流エラーはステータスと本文をそのまま透過し、上流への接続・読取失敗は`passthrough`と同じ502/504応答を返します。
 
 |モード・フィーチャー|機能|設定|
 |---|---|---|
 |`passthrough`|OpenAI互換APIを無変換で中継|`upstream`|
-|`grok-image`|Grok(xAI)の画像生成をOpenAI互換インターフェースとして提供|`listener.grok_image`|
-|`gemini-image`|Google Geminiの画像生成をOpenAI互換インターフェースとして提供|`listener.gemini_image`|
-|`featherless`|featherless.aiをモデルホワイトリストとAPIキーごとの同時リクエストキューイングで中継|`listener.featherless`|
-|`logging`フィーチャー|構造化プロトコルログ。全モードで利用可能|`listener.features`|
+|`grok-image`|Grok(xAI)の画像生成をOpenAI互換インターフェースとして提供|`grok_image`|
+|`gemini-image`|Google Geminiの画像生成をOpenAI互換インターフェースとして提供|`gemini_image`|
+|`featherless`|featherless.aiをモデルホワイトリストとAPIキーごとの同時リクエストキューイングで中継|`featherless`|
+|`logging`フィーチャー|構造化プロトコルログ。全モードで利用可能|`features`|
 
 ### passthroughモード
 
@@ -327,7 +333,7 @@ Realtime APIとResponses WebSocket modeを含むWebSocket、WebRTC、SIP通信�
 
 `grok-image`モードでは、プロキシはOpenAI専用パラメータの`size`、`quality`、`style`、`seed`、`background`、`moderation`、`output_format`、`output_compression`を除去し、リクエストに`response_format`がなければ`b64_json`を付与し(明示的な`b64_json`と`url`はそのまま透過し、それ以外の値はHTTP 400で拒否)、`n`が1から10の整数であることを検証し、その他不正リクエストは上流へ送る前にHTTP 400で拒否し、`storage_options`などそれ以外のキーはそのまま透過します。`logging`フィーチャーはこのモードでも`passthrough`と同様に機能します。
 
-`listener.grok_image`は任意で、`grok-image`モードでのみ指定できます。リクエストでの直接指定が優先される既定値を持ちます。
+`grok_image`キーは`grok-image`リスナー項目内では任意で、他のモードでは起動時警告付きで無視されます。リクエストでの直接指定が優先される既定値を持ちます。
 
 - `default_model`: リクエストに`model`がない場合に使う既定モデル。リクエスト・設定の双方にない場合はHTTP 400を返します。
 - `aspect_ratio`: リクエストに`aspect_ratio`がない場合に付与します(例: `1:1`、`16:9`)。
@@ -337,43 +343,45 @@ Realtime APIとResponses WebSocket modeを含むWebSocket、WebRTC、SIP通信�
 
 ```json
 {
-  "listener": {
-    "port": 8000,
-    "mode": "grok-image",
-    "grok_image": {
-      "default_model": "grok-imagine-image-2.0",
-      "aspect_ratio": "1:1",
-      "resolution": "1k"
-    },
-    "features": [
-      {
-        "name": "logging",
-        "config": {
-          "stdout": true,
-          "file": {
-            "enabled": true,
-            "path": "/var/log/nichellm/proxy.jsonl",
-            "max_bytes": 10485760,
-            "backup_count": 5
-          },
-          "capture": {"bodies": false, "max_body_bytes": 1048576},
-          "redaction": {
-            "additional_header_names": [],
-            "additional_query_parameter_names": [],
-            "additional_json_field_names": []
+  "listeners": [
+    {
+      "port": 8000,
+      "mode": "grok-image",
+      "grok_image": {
+        "default_model": "grok-imagine-image-2.0",
+        "aspect_ratio": "1:1",
+        "resolution": "1k"
+      },
+      "upstream": {
+        "base_url": "https://api.x.ai",
+        "api_key_env": "XAI_API_KEY"
+      },
+      "timeouts": {
+        "connect_seconds": 10,
+        "read_seconds": 120
+      },
+      "features": [
+        {
+          "name": "logging",
+          "config": {
+            "stdout": true,
+            "file": {
+              "enabled": true,
+              "path": "/var/log/nichellm/proxy.jsonl",
+              "max_bytes": 10485760,
+              "backup_count": 5
+            },
+            "capture": {"bodies": false, "max_body_bytes": 1048576},
+            "redaction": {
+              "additional_header_names": [],
+              "additional_query_parameter_names": [],
+              "additional_json_field_names": []
+            }
           }
         }
-      }
-    ]
-  },
-  "upstream": {
-    "base_url": "https://api.x.ai",
-    "api_key_env": "XAI_API_KEY"
-  },
-  "timeouts": {
-    "connect_seconds": 10,
-    "read_seconds": 120
-  }
+      ]
+    }
+  ]
 }
 ```
 
@@ -392,7 +400,7 @@ Realtime APIとResponses WebSocket modeを含むWebSocket、WebRTC、SIP通信�
 
 OpenAI互換層での画像生成に使えるモデルは、Googleによるホワイトリストに制限されます。2026-09-09時点で動作を確認済みなのは`gemini-3-pro-image-preview`のみで、`gemini-2.5-flash-image`は公式文書に記載がありますが2026-10-02に提供終了予定です。GA名の`gemini-3-pro-image`と`gemini-3.1-flash-image`は現在この層経由ではHTTP 404となり利用できません。
 
-`listener.gemini_image`は任意で、`gemini-image`モードでのみ指定できます。リクエストでの直接指定が優先される既定値を持ちます。
+`gemini_image`キーは`gemini-image`リスナー項目内では任意で、他のモードでは起動時警告付きで無視されます。リクエストでの直接指定が優先される既定値を持ちます。
 
 - `default_model`: リクエストに`model`がない場合に使う既定モデル。リクエスト・設定の双方にない場合はHTTP 400を返します。
 - `aspect_ratio`: リクエストに`size`と`aspect_ratio`の両方がない場合に付与します(例: `1:1`、`16:9`)。
@@ -401,42 +409,44 @@ OpenAI互換層での画像生成に使えるモデルは、Googleによるホ�
 
 ```json
 {
-  "listener": {
-    "port": 8000,
-    "mode": "gemini-image",
-    "gemini_image": {
-      "default_model": "gemini-3-pro-image-preview",
-      "aspect_ratio": "1:1"
-    },
-    "features": [
-      {
-        "name": "logging",
-        "config": {
-          "stdout": true,
-          "file": {
-            "enabled": true,
-            "path": "/var/log/nichellm/proxy.jsonl",
-            "max_bytes": 10485760,
-            "backup_count": 5
-          },
-          "capture": {"bodies": false, "max_body_bytes": 1048576},
-          "redaction": {
-            "additional_header_names": [],
-            "additional_query_parameter_names": [],
-            "additional_json_field_names": []
+  "listeners": [
+    {
+      "port": 8000,
+      "mode": "gemini-image",
+      "gemini_image": {
+        "default_model": "gemini-3-pro-image-preview",
+        "aspect_ratio": "1:1"
+      },
+      "upstream": {
+        "base_url": "https://generativelanguage.googleapis.com",
+        "api_key_env": "GEMINI_API_KEY"
+      },
+      "timeouts": {
+        "connect_seconds": 10,
+        "read_seconds": 120
+      },
+      "features": [
+        {
+          "name": "logging",
+          "config": {
+            "stdout": true,
+            "file": {
+              "enabled": true,
+              "path": "/var/log/nichellm/proxy.jsonl",
+              "max_bytes": 10485760,
+              "backup_count": 5
+            },
+            "capture": {"bodies": false, "max_body_bytes": 1048576},
+            "redaction": {
+              "additional_header_names": [],
+              "additional_query_parameter_names": [],
+              "additional_json_field_names": []
+            }
           }
         }
-      }
-    ]
-  },
-  "upstream": {
-    "base_url": "https://generativelanguage.googleapis.com",
-    "api_key_env": "GEMINI_API_KEY"
-  },
-  "timeouts": {
-    "connect_seconds": 10,
-    "read_seconds": 120
-  }
+      ]
+    }
+  ]
 }
 ```
 
@@ -465,9 +475,9 @@ featherless.aiは同時リクエストをunitで計量します。処理中の�
 
 `logging`フィーチャーはこのモードでも`passthrough`と同様に機能します。
 
-#### `listener.featherless`設定
+#### `featherless`設定
 
-`listener.featherless`は`featherless`モードでは必須で、他のモードでは指定するとエラーになります。
+`featherless`キーは`featherless`モードでは必須で、他のモードでは起動時警告付きで無視されます。
 
 - `model_whitelist`: 必須。モデルid文字列の空でないリスト(例: `moonshotai/Kimi-K2.6`)。完全一致のみ。`GET /v1/models`に表示され、リクエストで受け付けられるのはこれらのモデルだけです。
 - `concurrency_limit`: 任意の正の整数。`GET /v1/plan`から取得するプラン上限を上書きします。省略時はプランに自動追従します。
@@ -488,54 +498,37 @@ curl -s 'https://api.featherless.ai/v1/models?per_page=100' | jq -r '.data[].id'
 
 ```json
 {
-  "listener": {
-    "port": 8000,
-    "mode": "featherless",
-    "featherless": {
-      "model_whitelist": [
-        "moonshotai/Kimi-K2.6",
-        "Qwen/Qwen3-Coder-480B"
-      ],
-      "max_queue_wait_seconds": 60,
-      "cache_ttl_seconds": 300
-    },
-    "features": [
-      {
-        "name": "logging",
-        "config": {
-          "stdout": true,
-          "file": {
-            "enabled": true,
-            "path": "/var/log/nichellm/proxy.jsonl",
-            "max_bytes": 10485760,
-            "backup_count": 5
-          },
-          "capture": {"bodies": false, "max_body_bytes": 1048576},
-          "redaction": {
-            "additional_header_names": [],
-            "additional_query_parameter_names": [],
-            "additional_json_field_names": []
-          }
-        }
+  "listeners": [
+    {
+      "port": 8000,
+      "mode": "featherless",
+      "featherless": {
+        "model_whitelist": [
+          "moonshotai/Kimi-K2.6",
+          "Qwen/Qwen3-Coder-480B"
+        ],
+        "max_queue_wait_seconds": 60,
+        "cache_ttl_seconds": 300
+      },
+      "upstream": {
+        "base_url": "https://api.featherless.ai"
+      },
+      "timeouts": {
+        "connect_seconds": 10,
+        "read_seconds": 120
       }
-    ]
-  },
-  "upstream": {
-    "base_url": "https://api.featherless.ai"
-  },
-  "timeouts": {
-    "connect_seconds": 10,
-    "read_seconds": 120
-  }
+    }
+  ]
 }
 ```
 
 ### loggingフィーチャー
 
-`listener.features`を省略すればプロトコルログなしで動作します。指定する場合は`logging`を1件だけ指定できます。プロキシは重複・未知feature・不正なlogging設定を起動時に拒否します。
+リスナー項目の`features`配列は省略でき、そのリスナーはプロトコルログなしで動作します。指定する場合は`logging`を1件だけ指定できます。プロキシは重複・未知feature・不正なlogging設定を起動時に拒否します。
 
 - `stdout: true`(既定)はUTF-8 JSON Linesを標準出力へ出します。コンテナでは`docker compose logs -f nichellm-proxy`で追跡できます。
-- `file.enabled: true`は同一レコードを`file.path`へ出します。このパスは絶対パスである必要があります。`max_bytes`と`backup_count`はともに正の値が必要です。例の既定値では10 MiBの現行ファイルと5世代を保持するため、概算60 MiBです。
+- `file.enabled: true`は同一レコードを`file.path`へ出します。このパスは絶対パスである必要があります。`max_bytes`と`backup_count`はともに正の値が必要です。例の既定値では10 MiBの現行ファイルと5世代を保持するため、概算60 MiBです。複数のリスナーが同じパスへプロトコルログを書く場合、プロキシは起動時警告を表示しますが起動を続けます。
+- 全レコードに、その交換を処理したリスナーを示す`listener_port`フィールドが含まれるため、並行するリスナーの記録を区別できます。
 - `capture.bodies`の既定値は**false**です。trueの場合だけ、JSON・テキスト・SSEのリクエスト・レスポンス本文を`max_body_bytes`(既定1 MiB、最大10 MiB)まで記録します。中継ストリームを待機・再構築しません。
 - multipartとバイナリ本文は保存しません。バイト数、SHA-256 digest、省略理由だけを記録します。テキスト本文が上限で切れた場合はレコードに明記します。
 - `Authorization`、プロキシ自身の認証情報、Cookie、APIキーヘッダー、`token`、`secret`、`password`、`api_key`を含む名前の値はマスクします。プロジェクト固有の名前は3つの`redaction`配列へ追加してください。自由文形式のプロンプトやツール出力に埋め込まれた秘密情報・個人情報をJSON redactionで確実に検出することはできません。
@@ -546,30 +539,31 @@ curl -s 'https://api.featherless.ai/v1/models?per_page=100' | jq -r '.data[].id'
 
 ### サポートしないこと
 
-上記の中継動作に加えて、プロキシは`grok-image`と`gemini-image`の変換以外のプロトコル変換・プロバイダーアダプターを提供しません。また、webhook受信・署名検証、Administration API操作、レート制限、プロキシ自身の認証、TLS終端、複数listenerも提供しません。`featherless`モードのAPIキー管理はクライアント側のみです。プロキシ側でのキー管理やホワイトリスト管理APIは提供しません。
+上記の中継動作に加えて、プロキシは`grok-image`と`gemini-image`の変換以外のプロトコル変換・プロバイダーアダプターを提供しません。また、webhook受信・署名検証、Administration API操作、レート制限、プロキシ自身の認証、TLS終端も提供しません。`featherless`モードのAPIキー管理はクライアント側のみです。プロキシ側でのキー管理やホワイトリスト管理APIは提供しません。
 
 ## セキュリティ
 
 - nicheLLM Proxyにはプロキシ自身の認証・TLS終端がありません。プロキシに到達できる者は誰でも、設定済みの上流APIキーとその利用枠をプロキシ経由で使えます。信頼できるネットワーク内だけで運用してください。
-- インターネットへ直接公開しないでください。ネットワーク越しに使う場合は、利用者自身が手前に置くリバースプロキシでTLS終端と認証を行うことを想定しています。ホスト実行(uv)は全インターフェース(`0.0.0.0`)でリッスンしますが、同梱のCompose構成は`127.0.0.1:8000`のみを公開します。
+- インターネットへ直接公開しないでください。ネットワーク越しに使う場合は、利用者自身が手前に置くリバースプロキシでTLS終端と認証を行うことを想定しています。ホスト実行(uv)は全インターフェース(`0.0.0.0`)でリッスンしますが、同梱のCompose構成は既定で`127.0.0.1:8000`のみを公開します。
 - プロトコルログは機密データとして扱ってください。本文captureはopt-inですが、プロンプト、モデル出力、個人情報を含み得ます。ログボリュームへのアクセスを制限し、保持・削除方針を定めてください。
 
 ## トラブルシューティング
 
 起動時の代表的なエラーと確認ポイント:
 
-- `設定ファイルが見つかりません: {path}`(英語: `Configuration file was not found: {path}`) — そのパスに設定JSONがありません。ホスト実行では`NICHELLM_CONFIG_PATH`を、Dockerでは`config.json`のマウントを確認してください。
+- `v1.4以降の設定には最上位の 'listeners' 配列が必要です。移行手順はREADMEを参照してください。`(英語: `Since v1.4 the configuration requires a top-level 'listeners' array. See the README for the migration guide.`) — 設定がv1.4より前の形式です。[設定](#設定)の`listeners`形式へ書き換えてください。
+- `設定ファイルが見つかりません: {path}`(英語: `Configuration file was not found: {path}`) — そのパスに設定ファイルがありません。ホスト実行では`NICHELLM_CONFIG_PATH`を、Dockerでは`config.jsonc`のマウントを確認してください。
 - `上流APIキーの環境変数 '{api_key_env}' が設定されていません。`(英語: `Upstream API key environment variable '{api_key_env}' is not set.`) — `api_key_env`が指す変数が設定されていません。シェルでexportするか、Composeファイルと同じ場所の`.env`ファイルに設定してください。
-- 設定が効いていないように見える — 最上位の未知キー、設定された`listener.mode`に属さないモード固有ブロック、`logging.file.enabled`が`false`のときの`logging.file`の設定は、起動時の警告とともに無視されます。起動時に表示される警告行と、キーのスペル(例: `timeouts`を`timouts`と書く)を確認してください。
+- 設定が効いていないように見える — 最上位の未知キー、項目の`mode`に属さないモード固有ブロック、`logging.file.enabled`が`false`のときの`logging.file`の設定は、起動時の警告とともに無視されます。リスナー個別の警告には`[port N]`接頭辞が付きます。起動時に表示される警告行と、キーのスペル(例: `timeouts`を`timouts`と書く)を確認してください。
 
 プロキシ自身が出すエラーメッセージは`NICHELLM_LANGUAGE`に応じてローカライズされます(既定は英語、`ja`で日本語)。
 
 ## 変更履歴
 
-### v1.3.0（2026-09-12）
+### v1.4.0(2026-09-15)
 
-- `featherless`リスナーモードを追加しました。featherless.aiをモデルホワイトリスト付きのOpenAI互換インターフェースとして提供します。`GET /v1/models`は設定した`model_whitelist`のみを表示し、他のエンドポイントはクライアントの`Authorization`ヘッダー付きで中継します(プロキシはAPIキーを保持しません)。
-- `featherless`モードにAPIキーごとの同時リクエストゲートを追加しました。プラン上限を`GET /v1/plan`から取得し(`concurrency_limit`で上書き可)、実際の使用量を`GET /account/concurrency`スナップショットで追跡し、上限を超えるリクエストは`max_queue_wait_seconds`(既定60秒)までFIFOキューで待機してからHTTP 429を応答します。
+- 破壊的設定変更: 最上位の`listener`、`upstream`、`timeouts`ブロックを、各項目が1つの完全なリスナー(ポート、モード、upstream、timeouts、モード固有ブロック、features)を記述する必須の最上位`listeners`配列へ置き換えました。v1.4より前のファイルは、READMEの移行手順を指すエラーで起動時に拒否されます。
+- 1プロセスで複数リスナーを異なるモードで並行待受(ポートは一意)、設定ファイルのJSONCコメント対応、`GET /health`のリスナーごとの提供、プロトコルログレコードへの`listener_port`フィールド追加、全リスナーを列挙する起動出力に対応しました。
 
 全履歴は英語の[CHANGELOG.md](CHANGELOG.md)を参照してください。
 
