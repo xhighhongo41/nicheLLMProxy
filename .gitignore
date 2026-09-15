@@ -222,6 +222,7 @@ __marimo__/
 
 PROJECT.md
 開発資料/
+AGENTS.md
 config.json
 config.local.json
 logs/
