@@ -1,5 +1,11 @@
 # Changelog
 
+### v1.4.3 (2026-09-16)
+
+- Bug fix: image generation relays (`gemini-image` and `grok-image` modes) read the upstream response with automatic decompression but still forwarded the upstream `Content-Encoding` header, so a gzip-compressed response was relayed as a plain body declared as gzip; clients that trust the header (for example Open WebUI) failed to decode a response the proxy itself had logged as 200 OK. The relays now omit `Content-Encoding` from the forwarded response headers, matching the decompressed bytes they actually send; `Content-Length` continues to be recalculated from the final body.
+- Bug fix: the same relays forwarded the client's `Accept-Encoding` header verbatim, so an advertised but undecodable encoding (for example `br` or `zstd` without the optional codecs installed) made the HTTP client return undecoded bytes. The relays now omit `Accept-Encoding` from forwarded request headers so the HTTP client advertises exactly the encodings it can decode.
+- Bug fix: `gemini-image` mode now strips the Azure OpenAI-style `api-version` query parameter (case-insensitive; other query parameters are preserved) before forwarding, because the Gemini endpoint rejects unknown query parameters with HTTP 400 INVALID_ARGUMENT ("Cannot bind query parameter"). `grok-image` mode keeps forwarding the query string unchanged because xAI accepts it.
+
 ### v1.4.2 (2026-09-16)
 
 - Bug fix: image generation relays (`gemini-image` and `grok-image` modes) forwarded the client's original `Content-Length` header even when the request body was rewritten for the upstream (adding `response_format`, `model`, or `aspect_ratio` fields), so the declared length could disagree with the bytes actually sent, making the upstream abort the request with a protocol error that surfaced as a 500 response. The relay now forwards headers without `Content-Length` so the HTTP client derives it from the transformed body, and both README changelogs document the fix.
