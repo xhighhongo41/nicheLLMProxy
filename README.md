@@ -54,7 +54,7 @@ To delete retained logs deliberately, stop the service and remove the named volu
 Published multi-platform (`linux/amd64`, `linux/arm64`) images are available at `xhighhongo41/nichellm-proxy`. Use an exact version tag in production; rolling tags such as `1.3` and `latest` also exist.
 
 ```bash
-docker pull xhighhongo41/nichellm-proxy:1.4.2
+docker pull xhighhongo41/nichellm-proxy:1.4.3
 ```
 
 The image contains no API key or configuration file. Create a `.env` file next to the Compose file with the API key variables your configuration uses (see [API key management](#api-key-management)), and put a `config.jsonc` (start from the full example in [Configuration](#configuration)) and this Compose file in a working directory:
@@ -62,7 +62,7 @@ The image contains no API key or configuration file. Create a `.env` file next t
 ```yaml
 services:
   nichellm-proxy:
-    image: xhighhongo41/nichellm-proxy:1.4.2
+    image: xhighhongo41/nichellm-proxy:1.4.3
     # Add one mapping per listener port defined in config.jsonc.
     ports:
       - "127.0.0.1:8000:8000"
@@ -152,7 +152,7 @@ git pull
 docker compose up --build -d
 ```
 
-Published Docker Hub image: update the image tag in your Compose file (for example `xhighhongo41/nichellm-proxy:1.4.2`), then:
+Published Docker Hub image: update the image tag in your Compose file (for example `xhighhongo41/nichellm-proxy:1.4.3`), then:
 
 ```bash
 docker compose pull
@@ -564,6 +564,10 @@ Representative startup errors and what to check:
 Error messages the proxy generates are localized with `NICHELLM_LANGUAGE` (English by default, Japanese with `ja`).
 
 ## Changelog
+
+### v1.4.3 (2026-09-16)
+
+- Bug fixes: image generation relays (`gemini-image` and `grok-image` modes) no longer forward `Accept-Encoding` from the client or `Content-Encoding` from the upstream, so a gzip-compressed response is no longer relayed as a plain body declared as gzip (which made clients fail to decode a response the proxy itself had logged as 200 OK) and the HTTP client only advertises encodings it can decode. `gemini-image` mode now also strips the Azure OpenAI-style `api-version` query parameter that the Gemini endpoint rejects with HTTP 400; other query parameters are preserved and `grok-image` mode is unchanged.
 
 ### v1.4.2 (2026-09-16)
 

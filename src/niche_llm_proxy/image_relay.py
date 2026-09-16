@@ -26,6 +26,7 @@ from niche_llm_proxy.passthrough import (
 _LOGGER = logging.getLogger(__name__)
 
 BodyTransform = Callable[[bytes], bytes]
+QueryTransform = Callable[[str | None], str | None]
 
 
 class TransformError(Exception):
@@ -66,13 +67,15 @@ async def relay_upstream(
     *,
     transform_request: BodyTransform | None = None,
     transform_response: BodyTransform | None = None,
+    transform_query: QueryTransform | None = None,
     error_event: str,
 ) -> Response:
     """Relay a request to the upstream with optional body transformations.
 
     The request body is sent unchanged when ``transform_request`` is None,
     which supports pass-through relays such as model listings. The response
-    body is transformed only for upstream 200 responses.
+    body is transformed only for upstream 200 responses. The query string is
+    forwarded unchanged when ``transform_query`` is None.
     """
 
     body = await _read_request_body(request, exchange)
@@ -95,14 +98,21 @@ async def relay_upstream(
         )
 
     client = create_http_client(config, transport=upstream_transport)
+    # Strip content-length (recomputed by httpx for the transformed body) and
+    # accept-encoding so httpx advertises only the encodings it can decode.
+    # Otherwise an upstream could answer with e.g. br, which aread() would
+    # return undecoded.
     forwarded_headers = [
         (name, value)
         for name, value in prepare_request_headers(request.headers, config.upstream.api_key)
-        if name.lower() != b"content-length"
+        if name.lower() not in (b"content-length", b"accept-encoding")
     ]
+    query = request.url.query
+    if transform_query is not None:
+        query = transform_query(query)
     upstream_request = client.build_request(
         request.method,
-        build_upstream_url(config.upstream.base_url, upstream_path, request.url.query),
+        build_upstream_url(config.upstream.base_url, upstream_path, query),
         headers=forwarded_headers,
         content=upstream_body,
     )
@@ -182,12 +192,17 @@ def _response_headers(
     upstream_response: httpx.Response,
     payload: bytes,
 ) -> list[tuple[bytes, bytes]]:
-    """Prepare upstream response headers with a recomputed content length."""
+    """Prepare upstream response headers with a recomputed content length.
+
+    ``content-encoding`` is dropped because ``aread()`` returns the upstream
+    body already decoded, so relaying the original header would advertise a
+    compression that the payload no longer uses.
+    """
 
     headers = [
         (name, value)
         for name, value in prepare_response_headers(upstream_response.headers)
-        if name.lower() != b"content-length"
+        if name.lower() not in (b"content-length", b"content-encoding")
     ]
     headers.append((b"content-length", str(len(payload)).encode("ascii")))
     return headers
