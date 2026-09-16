@@ -105,6 +105,7 @@ class _FakeFeatherlessUpstream:
         self.completions_delay = completions_delay
         self.requests: list[tuple[str, str, str | None]] = []
         self.completions: list[tuple[str | None, str | None]] = []
+        self.completion_frames: list[tuple[str | None, int]] = []
         self.fail = False
 
     async def handler(self, request: httpx.Request) -> httpx.Response:
@@ -155,6 +156,9 @@ class _FakeFeatherlessUpstream:
                 return _stream_json_response(self.details[model_id], request)
             return httpx.Response(404, request=request)
         if request.method == "POST" and path == "/v1/chat/completions":
+            self.completion_frames.append(
+                (request.headers.get("content-length"), len(request.content))
+            )
             try:
                 body = json.loads(request.content.decode("utf-8"))
             except (UnicodeDecodeError, json.JSONDecodeError):
@@ -1335,6 +1339,28 @@ class TestFeatherlessApp:
         assert response.status_code == 200
         assert response.json()["model"] == KIMI
         assert upstream.completions == [(KIMI, AUTH1)]
+
+    @pytest.mark.anyio
+    async def test_chat_completions_sends_content_length_matching_body(
+        self, make_app: Any
+    ) -> None:
+        """POST /v1/chat/completions forwards a content-length matching the body."""
+
+        upstream = _FakeFeatherlessUpstream(details={KIMI: _detail_body(KIMI)})
+        app = make_app(upstream, concurrency_limit=8)
+
+        async with self._client(app) as client:
+            response = await client.post(
+                "/v1/chat/completions",
+                json={"model": KIMI, "messages": []},
+                headers={"Authorization": AUTH1},
+            )
+
+        assert response.status_code == 200
+        assert len(upstream.completion_frames) == 1
+        content_length, body_length = upstream.completion_frames[0]
+        assert content_length is not None
+        assert int(content_length) == body_length
 
     @pytest.mark.anyio
     async def test_upstream_error_passes_through_and_releases(

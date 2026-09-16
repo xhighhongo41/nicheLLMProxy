@@ -207,6 +207,36 @@ async def test_passthrough_forwards_request_and_replaces_authorization(
 
 
 @pytest.mark.anyio
+async def test_passthrough_forwards_content_length_matching_body(
+    proxy_config: ListenerRuntimeConfig,
+) -> None:
+    """Forward a content-length that matches the streamed request body."""
+    received: dict[str, Any] = {}
+    upstream = FastAPI()
+
+    @upstream.post("/v1/chat/completions")
+    async def chat_completions(request: Request) -> JSONResponse:
+        received["content_length"] = request.headers.get("content-length")
+        received["body"] = await request.body()
+        return JSONResponse({"ok": True})
+
+    app = create_app(proxy_config, httpx.ASGITransport(app=upstream))
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app),
+        base_url="http://proxy.test",
+    ) as client:
+        response = await client.post(
+            "/v1/chat/completions",
+            content=b'{"message":"hello"}',
+            headers={"Content-Type": "application/json"},
+        )
+
+    assert response.status_code == 200
+    assert received["content_length"] is not None
+    assert int(received["content_length"]) == len(received["body"])
+
+
+@pytest.mark.anyio
 async def test_passthrough_preserves_upstream_http_error(
     proxy_config: ListenerRuntimeConfig,
 ) -> None:

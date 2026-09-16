@@ -179,7 +179,7 @@ wheels = [
 
 [[package]]
 name = "niche-llm-proxy"
-version = "1.4.1"
+version = "1.4.2"
 source = { editable = "." }
 dependencies = [
     { name = "fastapi" },

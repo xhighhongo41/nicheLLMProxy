@@ -54,7 +54,7 @@ docker compose exec nichellm-proxy sh -c 'ls -lh /var/log/nichellm'
 公開済みのmulti-platform(`linux/amd64`、`linux/arm64`)イメージは`xhighhongo41/nichellm-proxy`で入手できます。本番では正確なバージョンタグを利用してください。`1.3`や`latest`のようなローリングタグも存在します。
 
 ```bash
-docker pull xhighhongo41/nichellm-proxy:1.4.1
+docker pull xhighhongo41/nichellm-proxy:1.4.2
 ```
 
 イメージにはAPIキーも設定ファイルも含まれません。Composeファイルと同じ場所に、設定で使うAPIキー変数を記した`.env`ファイルを作成し([APIキー管理](#apiキー管理)を参照)、作業ディレクトリに`config.jsonc`([設定](#設定)の完全な例から始めてください)と次のComposeファイルを配置します。
@@ -62,7 +62,7 @@ docker pull xhighhongo41/nichellm-proxy:1.4.1
 ```yaml
 services:
   nichellm-proxy:
-    image: xhighhongo41/nichellm-proxy:1.4.1
+    image: xhighhongo41/nichellm-proxy:1.4.2
     # config.jsoncで定義したリスナーポートごとに1つのマッピングを追加。
     ports:
       - "127.0.0.1:8000:8000"
@@ -152,7 +152,7 @@ git pull
 docker compose up --build -d
 ```
 
-公開Docker Hubイメージで実行している場合: Composeファイル内のイメージタグを更新し(例: `xhighhongo41/nichellm-proxy:1.4.1`)、次を実行します。
+公開Docker Hubイメージで実行している場合: Composeファイル内のイメージタグを更新し(例: `xhighhongo41/nichellm-proxy:1.4.2`)、次を実行します。
 
 ```bash
 docker compose pull
@@ -562,6 +562,10 @@ curl -s 'https://api.featherless.ai/v1/models?per_page=100' | jq -r '.data[].id'
 プロキシ自身が出すエラーメッセージは`NICHELLM_LANGUAGE`に応じてローカライズされます(既定は英語、`ja`で日本語)。
 
 ## 変更履歴
+
+### v1.4.2(2026-09-16)
+
+- バグ修正: 画像生成リレー(`gemini-image`・`grok-image`モード)ではリクエストボディを変換してもクライアント元の`Content-Length`ヘッダーをそのまま転送していました。上流がプロトコルエラーでリクエストを拒否し、結果として500応答になることがありました。HTTPクライアントが変換後のボディから`Content-Length`を再計算し、送信バイト数と常に一致するように修正しました。
 
 ### v1.4.1(2026-09-15)
 

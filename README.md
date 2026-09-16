@@ -54,7 +54,7 @@ To delete retained logs deliberately, stop the service and remove the named volu
 Published multi-platform (`linux/amd64`, `linux/arm64`) images are available at `xhighhongo41/nichellm-proxy`. Use an exact version tag in production; rolling tags such as `1.3` and `latest` also exist.
 
 ```bash
-docker pull xhighhongo41/nichellm-proxy:1.4.1
+docker pull xhighhongo41/nichellm-proxy:1.4.2
 ```
 
 The image contains no API key or configuration file. Create a `.env` file next to the Compose file with the API key variables your configuration uses (see [API key management](#api-key-management)), and put a `config.jsonc` (start from the full example in [Configuration](#configuration)) and this Compose file in a working directory:
@@ -62,7 +62,7 @@ The image contains no API key or configuration file. Create a `.env` file next t
 ```yaml
 services:
   nichellm-proxy:
-    image: xhighhongo41/nichellm-proxy:1.4.1
+    image: xhighhongo41/nichellm-proxy:1.4.2
     # Add one mapping per listener port defined in config.jsonc.
     ports:
       - "127.0.0.1:8000:8000"
@@ -152,7 +152,7 @@ git pull
 docker compose up --build -d
 ```
 
-Published Docker Hub image: update the image tag in your Compose file (for example `xhighhongo41/nichellm-proxy:1.4.1`), then:
+Published Docker Hub image: update the image tag in your Compose file (for example `xhighhongo41/nichellm-proxy:1.4.2`), then:
 
 ```bash
 docker compose pull
@@ -564,6 +564,10 @@ Representative startup errors and what to check:
 Error messages the proxy generates are localized with `NICHELLM_LANGUAGE` (English by default, Japanese with `ja`).
 
 ## Changelog
+
+### v1.4.2 (2026-09-16)
+
+- Bug fix: image generation relays (`gemini-image` and `grok-image` modes) forwarded the client's original `Content-Length` header even when the request body was transformed, which could make the upstream reject the request with a protocol error and surface as a 500 response. The relay now lets the HTTP client recalculate `Content-Length` from the transformed body so it always matches the bytes sent.
 
 ### v1.4.1 (2026-09-15)
 

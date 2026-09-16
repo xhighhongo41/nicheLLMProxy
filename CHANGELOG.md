@@ -1,5 +1,9 @@
 # Changelog
 
+### v1.4.2 (2026-09-16)
+
+- Bug fix: image generation relays (`gemini-image` and `grok-image` modes) forwarded the client's original `Content-Length` header even when the request body was rewritten for the upstream (adding `response_format`, `model`, or `aspect_ratio` fields), so the declared length could disagree with the bytes actually sent, making the upstream abort the request with a protocol error that surfaced as a 500 response. The relay now forwards headers without `Content-Length` so the HTTP client derives it from the transformed body, and both README changelogs document the fix.
+
 ### v1.4.1 (2026-09-15)
 
 - Behavior change: a listener entry in the `grok-image`, `gemini-image`, or `featherless` mode whose mode-specific key (`grok_image`, `gemini_image`, or `featherless`) is missing is now skipped with a startup warning naming the port, mode, and missing key. Previously a missing `grok_image` or `gemini_image` key started the listener with default settings, and a missing `featherless` key crashed the process during startup. Other listeners start normally; when every listener is skipped this way, startup fails with a configuration error listing the skipped ports.
