@@ -472,6 +472,46 @@ async def test_generations_transforms_request_and_adds_created(
 
 
 @pytest.mark.anyio
+async def test_generations_sends_content_length_matching_transformed_body(
+    monkeypatch: pytest.MonkeyPatch,
+    write_config: Callable[[dict[str, object] | None], Path],
+) -> None:
+    """Forward a content-length that matches the transformed request body."""
+    config = _grok_image_config(
+        monkeypatch,
+        write_config,
+        grok_image={
+            "default_model": "grok-imagine-image-2.0",
+            "aspect_ratio": "1:1",
+        },
+    )
+    received: dict[str, object] = {}
+
+    def upstream_handler(request: httpx.Request) -> httpx.Response:
+        received["content_length"] = int(request.headers["content-length"])
+        received["body_length"] = len(request.content)
+        return httpx.Response(
+            200,
+            headers={"Content-Type": "application/json"},
+            content=_UPSTREAM_IMAGE_RESPONSE,
+            request=request,
+        )
+
+    app = create_app(config, httpx.MockTransport(upstream_handler))
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app),
+        base_url="http://proxy.test",
+    ) as client:
+        response = await client.post(
+            "/v1/images/generations",
+            json={"prompt": "a cat"},
+        )
+
+    assert response.status_code == 200
+    assert received["content_length"] == received["body_length"]
+
+
+@pytest.mark.anyio
 async def test_generations_preserves_existing_created(
     monkeypatch: pytest.MonkeyPatch,
     write_config: Callable[[dict[str, object] | None], Path],

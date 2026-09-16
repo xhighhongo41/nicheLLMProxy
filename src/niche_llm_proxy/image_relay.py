@@ -95,10 +95,15 @@ async def relay_upstream(
         )
 
     client = create_http_client(config, transport=upstream_transport)
+    forwarded_headers = [
+        (name, value)
+        for name, value in prepare_request_headers(request.headers, config.upstream.api_key)
+        if name.lower() != b"content-length"
+    ]
     upstream_request = client.build_request(
         request.method,
         build_upstream_url(config.upstream.base_url, upstream_path, request.url.query),
-        headers=prepare_request_headers(request.headers, config.upstream.api_key),
+        headers=forwarded_headers,
         content=upstream_body,
     )
 
