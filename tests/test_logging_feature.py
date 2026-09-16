@@ -8,8 +8,7 @@ from pathlib import Path
 
 import httpx
 import pytest
-from fastapi import FastAPI, Request
-from fastapi.responses import Response, StreamingResponse
+from fastapi import FastAPI
 
 from niche_llm_proxy.app import create_app
 from niche_llm_proxy.config import ListenerRuntimeConfig, load_config
