@@ -95,10 +95,14 @@ async def relay_upstream(
         )
 
     client = create_http_client(config, transport=upstream_transport)
+    # Strip content-length (recomputed by httpx for the transformed body) and
+    # accept-encoding so httpx advertises only the encodings it can decode.
+    # Otherwise an upstream could answer with e.g. br, which aread() would
+    # return undecoded.
     forwarded_headers = [
         (name, value)
         for name, value in prepare_request_headers(request.headers, config.upstream.api_key)
-        if name.lower() != b"content-length"
+        if name.lower() not in (b"content-length", b"accept-encoding")
     ]
     upstream_request = client.build_request(
         request.method,
@@ -182,12 +186,17 @@ def _response_headers(
     upstream_response: httpx.Response,
     payload: bytes,
 ) -> list[tuple[bytes, bytes]]:
-    """Prepare upstream response headers with a recomputed content length."""
+    """Prepare upstream response headers with a recomputed content length.
+
+    ``content-encoding`` is dropped because ``aread()`` returns the upstream
+    body already decoded, so relaying the original header would advertise a
+    compression that the payload no longer uses.
+    """
 
     headers = [
         (name, value)
         for name, value in prepare_response_headers(upstream_response.headers)
-        if name.lower() != b"content-length"
+        if name.lower() not in (b"content-length", b"content-encoding")
     ]
     headers.append((b"content-length", str(len(payload)).encode("ascii")))
     return headers

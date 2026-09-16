@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import gzip
 import hashlib
 import json
 from collections.abc import AsyncIterator, Callable
@@ -496,6 +497,85 @@ async def test_generations_sends_content_length_matching_transformed_body(
 
     assert response.status_code == 200
     assert received["content_length"] == received["body_length"]
+
+
+@pytest.mark.anyio
+async def test_generations_strips_content_encoding_from_gzipped_response(
+    monkeypatch: pytest.MonkeyPatch,
+    write_config: Callable[[dict[str, object] | None], Path],
+) -> None:
+    """Relay a gzipped upstream response as an uncompressed consistent body."""
+    config = _gemini_image_config(
+        monkeypatch,
+        write_config,
+        gemini_image={"default_model": "gemini-3-pro-image-preview"},
+    )
+
+    def upstream_handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            headers={
+                "Content-Type": "application/json",
+                "Content-Encoding": "gzip",
+            },
+            content=gzip.compress(_UPSTREAM_IMAGE_RESPONSE),
+            request=request,
+        )
+
+    app = create_app(config, httpx.MockTransport(upstream_handler))
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app),
+        base_url="http://proxy.test",
+    ) as client:
+        response = await client.post(
+            "/v1/images/generations",
+            json={"prompt": "a cat", "model": "gemini-3-pro-image-preview"},
+        )
+
+    assert response.status_code == 200
+    assert "content-encoding" not in response.headers
+    payload = response.json()
+    assert payload["data"] == [{"b64_json": "aW1hZ2U="}]
+    assert payload["model"] == "gemini-3-pro-image-preview"
+    assert isinstance(payload["created"], int)
+    assert int(response.headers["content-length"]) == len(response.content)
+
+
+@pytest.mark.anyio
+async def test_generations_sends_httpx_default_accept_encoding(
+    monkeypatch: pytest.MonkeyPatch,
+    write_config: Callable[[dict[str, object] | None], Path],
+) -> None:
+    """Send the proxy's own accept-encoding instead of the client's."""
+    config = _gemini_image_config(
+        monkeypatch,
+        write_config,
+        gemini_image={"default_model": "gemini-3-pro-image-preview"},
+    )
+    received: dict[str, object] = {}
+
+    def upstream_handler(request: httpx.Request) -> httpx.Response:
+        received["accept_encoding"] = request.headers["accept-encoding"]
+        return httpx.Response(
+            200,
+            headers={"Content-Type": "application/json"},
+            content=_UPSTREAM_IMAGE_RESPONSE,
+            request=request,
+        )
+
+    app = create_app(config, httpx.MockTransport(upstream_handler))
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app),
+        base_url="http://proxy.test",
+    ) as client:
+        response = await client.post(
+            "/v1/images/generations",
+            json={"prompt": "a cat", "model": "gemini-3-pro-image-preview"},
+            headers={"Accept-Encoding": "gzip, deflate, br, zstd"},
+        )
+
+    assert response.status_code == 200
+    assert received["accept_encoding"] == "gzip, deflate"
 
 
 @pytest.mark.anyio
