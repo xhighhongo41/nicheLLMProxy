@@ -579,6 +579,85 @@ async def test_generations_sends_httpx_default_accept_encoding(
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("request_query", "expected_query"),
+    [
+        ("api-version=v1&size=custom", "size=custom"),
+        ("API-Version=v1", ""),
+        ("api-version=v1", ""),
+        ("foo=bar&api-version=2024-02-01", "foo=bar"),
+        ("api-version=", ""),
+        ("foo=bar", "foo=bar"),
+        ("q=a%20b&api-version=v1", "q=a+b"),
+    ],
+)
+async def test_generations_drops_api_version_query(
+    monkeypatch: pytest.MonkeyPatch,
+    write_config: Callable[[dict[str, object] | None], Path],
+    request_query: str,
+    expected_query: str,
+) -> None:
+    """Drop the Azure-style api-version parameter from upstream queries."""
+    config = _gemini_image_config(
+        monkeypatch,
+        write_config,
+        gemini_image={"default_model": "gemini-3-pro-image-preview"},
+    )
+    received: dict[str, object] = {}
+
+    def upstream_handler(request: httpx.Request) -> httpx.Response:
+        received["query"] = request.url.query.decode("ascii")
+        return httpx.Response(
+            200,
+            headers={"Content-Type": "application/json"},
+            content=_UPSTREAM_IMAGE_RESPONSE,
+            request=request,
+        )
+
+    app = create_app(config, httpx.MockTransport(upstream_handler))
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app),
+        base_url="http://proxy.test",
+    ) as client:
+        response = await client.post(
+            f"/v1/images/generations?{request_query}",
+            json={"prompt": "a cat", "model": "gemini-3-pro-image-preview"},
+        )
+
+    assert response.status_code == 200
+    assert received["query"] == expected_query
+
+
+@pytest.mark.anyio
+async def test_models_drops_api_version_query(
+    monkeypatch: pytest.MonkeyPatch,
+    write_config: Callable[[dict[str, object] | None], Path],
+) -> None:
+    """Drop api-version from the models listing query as well."""
+    config = _gemini_image_config(monkeypatch, write_config)
+    received: dict[str, object] = {}
+
+    def upstream_handler(request: httpx.Request) -> httpx.Response:
+        received["query"] = request.url.query.decode("ascii")
+        return httpx.Response(
+            200,
+            headers={"Content-Type": "application/json"},
+            content=b'{"object":"list","data":[]}',
+            request=request,
+        )
+
+    app = create_app(config, httpx.MockTransport(upstream_handler))
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app),
+        base_url="http://proxy.test",
+    ) as client:
+        response = await client.get("/v1/models?api-version=v1")
+
+    assert response.status_code == 200
+    assert received["query"] == ""
+
+
+@pytest.mark.anyio
 async def test_generations_preserves_existing_created(
     monkeypatch: pytest.MonkeyPatch,
     write_config: Callable[[dict[str, object] | None], Path],

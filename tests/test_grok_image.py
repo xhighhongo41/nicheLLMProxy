@@ -592,6 +592,42 @@ async def test_generations_sends_httpx_default_accept_encoding(
 
 
 @pytest.mark.anyio
+async def test_generations_forwards_api_version_query_unchanged(
+    monkeypatch: pytest.MonkeyPatch,
+    write_config: Callable[[dict[str, object] | None], Path],
+) -> None:
+    """Keep forwarding api-version to xAI, which accepts it."""
+    config = _grok_image_config(
+        monkeypatch,
+        write_config,
+        grok_image={"default_model": "grok-imagine-image-2.0"},
+    )
+    received: dict[str, object] = {}
+
+    def upstream_handler(request: httpx.Request) -> httpx.Response:
+        received["query"] = request.url.query.decode("ascii")
+        return httpx.Response(
+            200,
+            headers={"Content-Type": "application/json"},
+            content=_UPSTREAM_IMAGE_RESPONSE,
+            request=request,
+        )
+
+    app = create_app(config, httpx.MockTransport(upstream_handler))
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app),
+        base_url="http://proxy.test",
+    ) as client:
+        response = await client.post(
+            "/v1/images/generations?api-version=v1",
+            json={"prompt": "a cat", "model": "grok-imagine-image-2.0"},
+        )
+
+    assert response.status_code == 200
+    assert received["query"] == "api-version=v1"
+
+
+@pytest.mark.anyio
 async def test_generations_preserves_existing_created(
     monkeypatch: pytest.MonkeyPatch,
     write_config: Callable[[dict[str, object] | None], Path],

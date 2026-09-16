@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import urllib.parse
 from enum import Enum
 from typing import Any
 
@@ -138,6 +139,28 @@ def transform_request_body(body: bytes, settings: GeminiImageConfig | None) -> b
     return json.dumps(output).encode("utf-8")
 
 
+def _drop_api_version_query(query: str | None) -> str | None:
+    """Drop the Azure-style ``api-version`` parameter from an upstream query.
+
+    Clients such as Open WebUI append ``?api-version=...`` for Azure OpenAI.
+    The Gemini compatibility layer rejects unknown query parameters with
+    400, so the parameter must not be forwarded. Queries without it are
+    returned byte-for-byte unchanged to avoid re-encoding side effects.
+    """
+
+    if not query:
+        return query
+
+    pairs = urllib.parse.parse_qsl(query, keep_blank_values=True)
+    if not any(name.lower() == "api-version" for name, _ in pairs):
+        return query
+
+    kept = [(name, value) for name, value in pairs if name.lower() != "api-version"]
+    if not kept:
+        return None
+    return urllib.parse.urlencode(kept)
+
+
 async def handle_gemini_image_generations(
     config: ListenerRuntimeConfig,
     exchange: ExchangeLog | None,
@@ -156,6 +179,7 @@ async def handle_gemini_image_generations(
             body, config.listener.gemini_image
         ),
         transform_response=ensure_created,
+        transform_query=_drop_api_version_query,
         error_event="gemini_image_transform",
     )
 
@@ -174,5 +198,6 @@ async def handle_gemini_models(
         upstream_transport,
         request,
         GEMINI_MODELS_PATH,
+        transform_query=_drop_api_version_query,
         error_event="gemini_image_transform",
     )
