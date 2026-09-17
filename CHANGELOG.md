@@ -1,5 +1,10 @@
 # Changelog
 
+### v1.5.0 (2026-09-17)
+
+- Added the `grok-image-edit` mode: presents Grok (xAI) image editing (`POST /v1/images/edits`) through an OpenAI-compatible interface. OpenAI-style `multipart/form-data` edit requests are translated to the xAI JSON edit API, with file parts converted to base64 data URIs (`image`/`image[]` → `image`/`images`), the usual OpenAI-only parameter removal, `aspect_ratio`/`resolution` defaults, and `created` completion. `GET /v1/models` and `GET /v1/image-generation-models` pass through. This lets OpenAI SDK clients (including `images.edit()`, which the xAI API rejects natively for being multipart) and Open WebUI edit images via Grok. Masks are rejected with HTTP 400 because xAI has no mask support.
+- No `gemini-image-edit` mode: the Gemini API OpenAI compatibility layer has no image edit endpoint; `POST /v1beta/openai/images/edits` answered HTTP 404 when verified on 2026-09-17.
+
 ### v1.4.3 (2026-09-16)
 
 - Bug fix: image generation relays (`gemini-image` and `grok-image` modes) read the upstream response with automatic decompression but still forwarded the upstream `Content-Encoding` header, so a gzip-compressed response was relayed as a plain body declared as gzip; clients that trust the header (for example Open WebUI) failed to decode a response the proxy itself had logged as 200 OK. The relays now omit `Content-Encoding` from the forwarded response headers, matching the decompressed bytes they actually send; `Content-Length` continues to be recalculated from the final body.

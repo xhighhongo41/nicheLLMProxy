@@ -1,6 +1,6 @@
 # nicheLLM Proxy
 
-nicheLLM Proxy relays HTTP requests and responses between an OpenAI-compatible client and an upstream LLM provider. The `passthrough` mode forwards without transformation, the `grok-image` mode added in v1.1 presents Grok (xAI) image generation through an OpenAI-compatible interface, the `gemini-image` mode added in v1.2 presents Google Gemini image generation through an OpenAI-compatible interface, and the `featherless` mode added in v1.3 presents featherless.ai through a model whitelist and per-key concurrent-request queueing. Since v1.4, one process can serve multiple listeners in different modes concurrently; all modes run in a trusted network and support opt-in structured protocol logging.
+nicheLLM Proxy relays HTTP requests and responses between an OpenAI-compatible client and an upstream LLM provider. The `passthrough` mode forwards without transformation, the `grok-image` mode added in v1.1 presents Grok (xAI) image generation through an OpenAI-compatible interface, the `gemini-image` mode added in v1.2 presents Google Gemini image generation through an OpenAI-compatible interface, the `featherless` mode added in v1.3 presents featherless.ai through a model whitelist and per-key concurrent-request queueing, and the `grok-image-edit` mode added in v1.5 presents Grok image editing through an OpenAI-compatible interface. Since v1.4, one process can serve multiple listeners in different modes concurrently; all modes run in a trusted network and support opt-in structured protocol logging.
 
 [日本語版 README](README_ja.md)
 
@@ -54,7 +54,7 @@ To delete retained logs deliberately, stop the service and remove the named volu
 Published multi-platform (`linux/amd64`, `linux/arm64`) images are available at `xhighhongo41/nichellm-proxy`. Use an exact version tag in production; rolling tags such as `1.3` and `latest` also exist.
 
 ```bash
-docker pull xhighhongo41/nichellm-proxy:1.4.3
+docker pull xhighhongo41/nichellm-proxy:1.5.0
 ```
 
 The image contains no API key or configuration file. Create a `.env` file next to the Compose file with the API key variables your configuration uses (see [API key management](#api-key-management)), and put a `config.jsonc` (start from the full example in [Configuration](#configuration)) and this Compose file in a working directory:
@@ -62,7 +62,7 @@ The image contains no API key or configuration file. Create a `.env` file next t
 ```yaml
 services:
   nichellm-proxy:
-    image: xhighhongo41/nichellm-proxy:1.4.3
+    image: xhighhongo41/nichellm-proxy:1.5.0
     # Add one mapping per listener port defined in config.jsonc.
     ports:
       - "127.0.0.1:8000:8000"
@@ -152,7 +152,7 @@ git pull
 docker compose up --build -d
 ```
 
-Published Docker Hub image: update the image tag in your Compose file (for example `xhighhongo41/nichellm-proxy:1.4.3`), then:
+Published Docker Hub image: update the image tag in your Compose file (for example `xhighhongo41/nichellm-proxy:1.5.0`), then:
 
 ```bash
 docker compose pull
@@ -172,17 +172,18 @@ and start it again.
 
 ### Configuration file
 
-The proxy reads one mandatory configuration file. Five templates are included in the repository (fetch them from GitHub when you run only the published image):
+The proxy reads one mandatory configuration file. Six templates are included in the repository (fetch them from GitHub when you run only the published image):
 
 - `config.example.jsonc` — `passthrough` mode (shown below)
-- `config.multi-listener.example.jsonc` — all four modes on ports 8000–8003
+- `config.multi-listener.example.jsonc` — all five modes on ports 8000–8004
 - `config.grok-image.example.jsonc` — `grok-image` mode
+- `config.grok-image-edit.example.jsonc` — `grok-image-edit` mode
 - `config.gemini-image.example.jsonc` — `gemini-image` mode
 - `config.featherless.example.jsonc` — `featherless` mode
 
 Inside a container, the default path prefers `/app/config/config.jsonc` and falls back to `/app/config/config.json` when the JSONC file does not exist; the Docker Compose setups above mount your local `config.jsonc` at the preferred path. For host execution, set the path with `NICHELLM_CONFIG_PATH`.
 
-Configuration files accept JSONC: `//` line comments and `/* */` block comments are allowed regardless of the file extension, and comment markers inside string values (for example in URLs) are preserved. The configuration has one required top-level `listeners` array. Each entry is one complete, independent listener: it binds one port and carries its own `mode`, `upstream`, `timeouts`, optional mode-specific block, and optional `features`. One process serves every entry concurrently; `config.multi-listener.example.jsonc` combines all four modes on ports 8000–8003. Ports must be unique; duplicate ports are rejected as a configuration error.
+Configuration files accept JSONC: `//` line comments and `/* */` block comments are allowed regardless of the file extension, and comment markers inside string values (for example in URLs) are preserved. The configuration has one required top-level `listeners` array. Each entry is one complete, independent listener: it binds one port and carries its own `mode`, `upstream`, `timeouts`, optional mode-specific block, and optional `features`. One process serves every entry concurrently; `config.multi-listener.example.jsonc` combines all five modes on ports 8000–8004. Ports must be unique; duplicate ports are rejected as a configuration error.
 
 The `passthrough` example:
 
@@ -232,7 +233,7 @@ Common keys:
 |Key|Type / constraint|Default|
 |---|---|---|
 |`listeners[].port`|integer 1–65535 (required)|—|
-|`listeners[].mode`|`passthrough`, `grok-image`, `gemini-image`, or `featherless` (required)|—|
+|`listeners[].mode`|`passthrough`, `grok-image`, `grok-image-edit`, `gemini-image`, or `featherless` (required)|—|
 |`listeners[].upstream.base_url`|http/https URL without query or fragment (required)|—|
 |`listeners[].upstream.api_key_env`|non-empty string; the name of the environment variable holding the API key (required except in `featherless` mode, where it must be omitted)|—|
 |`listeners[].timeouts.connect_seconds`|positive number|10.0|
@@ -240,7 +241,7 @@ Common keys:
 
 The `timeouts` object itself is optional, and every key with a default value can be omitted. Multiple listeners may share one upstream provider by repeating the same `upstream` settings. The healthcheck in the bundled `docker-compose.yml` reads the configured listener ports from the mounted `config.jsonc` and probes each one, so it stays accurate for any port set.
 
-Mode-specific keys (`grok_image`, `gemini_image`, `featherless` inside a listener entry) and the optional `features` logging feature are described in [Modes and features](#modes-and-features). The `grok-image`, `gemini-image`, and `featherless` modes require their mode-specific key: a listener entry in one of these modes whose mode-specific key is missing is not started, a startup warning naming the port, mode, and missing key is printed to the standard error output, and the remaining listeners start normally. `passthrough` needs no mode-specific key. When every listener is skipped this way, startup fails with a configuration error. Unknown keys inside the mode-specific objects and invalid values are rejected as startup configuration errors. A mode-specific block that does not belong to the entry's `mode`, unknown top-level keys, and `logging.file` settings ignored while `logging.file.enabled` is `false` are reported as startup warnings and ignored — the proxy keeps starting and prints each warning to the standard error output; check the key spelling (for example `timouts` instead of `timeouts`) if a setting seems to have no effect. Complete mode examples are available as `config.grok-image.example.jsonc`, `config.gemini-image.example.jsonc`, and `config.featherless.example.jsonc`.
+Mode-specific keys (`grok_image`, `grok_image_edit`, `gemini_image`, `featherless` inside a listener entry) and the optional `features` logging feature are described in [Modes and features](#modes-and-features). The `grok-image`, `grok-image-edit`, `gemini-image`, and `featherless` modes require their mode-specific key: a listener entry in one of these modes whose mode-specific key is missing is not started, a startup warning naming the port, mode, and missing key is printed to the standard error output, and the remaining listeners start normally. `passthrough` needs no mode-specific key. When every listener is skipped this way, startup fails with a configuration error. Unknown keys inside the mode-specific objects and invalid values are rejected as startup configuration errors. A mode-specific block that does not belong to the entry's `mode`, unknown top-level keys, and `logging.file` settings ignored while `logging.file.enabled` is `false` are reported as startup warnings and ignored — the proxy keeps starting and prints each warning to the standard error output; check the key spelling (for example `timouts` instead of `timeouts`) if a setting seems to have no effect. Complete mode examples are available as `config.grok-image.example.jsonc`, `config.grok-image-edit.example.jsonc`, `config.gemini-image.example.jsonc`, and `config.featherless.example.jsonc`.
 
 ### Environment variables
 
@@ -276,12 +277,13 @@ For background responses, batches, and fine-tuning jobs, create the job and poll
 
 ## Modes and features
 
-Each listener entry's `mode` accepts `passthrough`, `grok-image`, `gemini-image`, or `featherless`; one process serves every configured listener concurrently. `GET /health` works in every mode and each port returns its own `status`, `version`, `mode`, and enabled feature names. At startup, the proxy prints one aggregate line to the standard output naming the proxy version and the listener count, followed by one line per listener naming its port, mode, and enabled feature names, and prints each configuration warning to the standard error output; per-listener warnings are prefixed with `[port N]`. The listener count and per-listener lines cover only the listeners that actually start; a listener skipped for a missing mode-specific key is reported only through its warning. Upstream errors are passed through with their status and body unchanged, and upstream connection and read failures return the same 502/504 responses as `passthrough`.
+Each listener entry's `mode` accepts `passthrough`, `grok-image`, `grok-image-edit`, `gemini-image`, or `featherless`; one process serves every configured listener concurrently. `GET /health` works in every mode and each port returns its own `status`, `version`, `mode`, and enabled feature names. At startup, the proxy prints one aggregate line to the standard output naming the proxy version and the listener count, followed by one line per listener naming its port, mode, and enabled feature names, and prints each configuration warning to the standard error output; per-listener warnings are prefixed with `[port N]`. The listener count and per-listener lines cover only the listeners that actually start; a listener skipped for a missing mode-specific key is reported only through its warning. Upstream errors are passed through with their status and body unchanged, and upstream connection and read failures return the same 502/504 responses as `passthrough`.
 
 |Mode / feature|Function|Settings|
 |---|---|---|
 |`passthrough`|Relays OpenAI-compatible APIs without transformation|`upstream`|
 |`grok-image`|Presents Grok (xAI) image generation through an OpenAI-compatible interface|`grok_image`|
+|`grok-image-edit`|Presents Grok image editing through an OpenAI-compatible interface|`grok_image_edit`|
 |`gemini-image`|Presents Google Gemini image generation through an OpenAI-compatible interface|`gemini_image`|
 |`featherless`|Relays featherless.ai with a model whitelist and per-key concurrent-request queueing|`featherless`|
 |`logging` feature|Structured protocol logging, available in every mode|`features`|
@@ -389,6 +391,82 @@ Complete `grok-image` example:
 }
 ```
 
+### grok-image-edit mode
+
+`grok-image-edit` presents Grok (xAI) image editing through an OpenAI-compatible interface. The xAI image edit API speaks JSON while the OpenAI Images edit API speaks `multipart/form-data`; this mode converts between the two, so OpenAI SDK clients (including `client.images.edit()`) and Open WebUI work against it directly:
+
+|Path|Method|Behavior|
+|---|---|---|
+|`/v1/images/edits`|POST|OpenAI Images edit request (multipart/form-data) translated to the xAI JSON edit API; response made OpenAI-compatible|
+|`/v1/models`|GET|Forwarded to the upstream without transformation|
+|`/v1/image-generation-models`|GET|Forwarded to the upstream without transformation|
+|Any other path|Any|HTTP 404 with a localized error|
+|An unsupported method on the paths above|—|HTTP 405 with a localized error|
+
+In `grok-image-edit` mode, the proxy accepts `multipart/form-data` bodies only (other content types are rejected with HTTP 400) and translates them as follows:
+
+- File parts named `image` (single) or `image[]` (repeated) become `image: {"url": "data:..."}` or `images: [{"url": "data:..."}, ...]` with base64 data URIs. Only PNG, JPEG, and WebP input images are accepted (detected from the file content itself); anything else is rejected with HTTP 400. At least one input image is required; up to five are accepted. A text `image`/`image[]` field holding an `http(s)://` or `data:` URL passes through unchanged.
+- `mask` parts are rejected with HTTP 400 (the xAI API has no mask support; failing loudly is safer than silently dropping the mask).
+- `prompt` is required and must be non-empty; `model` falls back to the configured `default_model` when missing or empty (Open WebUI sends an empty `model` unless configured); `n` must be an integer between 1 and 10; `response_format` defaults to `b64_json` (explicit `url` also passes through).
+- The OpenAI-only parameters `size`, `quality`, `style`, `seed`, `background`, `moderation`, `output_format`, and `output_compression` are removed; the configured `aspect_ratio` and `resolution` defaults are added when the request omits them; other keys such as `storage_options` pass through unchanged; unknown file parts are rejected with HTTP 400.
+- The response gets a `created` field added when the upstream omits it; `usage.cost_in_usd_ticks` and the rest of the body pass through unchanged.
+
+The `logging` feature works in this mode as in `passthrough`, including the `upstream_request_sent` event.
+
+The `grok_image_edit` key is required inside a `grok-image-edit` listener entry; an entry that omits it is not started and is reported with a startup warning. In other modes the key is ignored with a startup warning. It supplies defaults that a direct request value overrides:
+
+- `default_model`: used when the request has no `model` (or an empty one, as Open WebUI sends when `IMAGE_EDIT_MODEL` is unset). If neither is present, the proxy returns HTTP 400.
+- `aspect_ratio`: added when the request omits `aspect_ratio` (for example `1:1` or `16:9`).
+- `resolution`: added when the request omits `resolution`. It must be `1k` or `2k`.
+
+Complete `grok-image-edit` example:
+
+```json
+{
+  "listeners": [
+    {
+      "port": 8000,
+      "mode": "grok-image-edit",
+      "grok_image_edit": {
+        "default_model": "grok-imagine-image-2.0",
+        "aspect_ratio": "1:1",
+        "resolution": "1k"
+      },
+      "upstream": {
+        "base_url": "https://api.x.ai",
+        "api_key_env": "XAI_API_KEY"
+      },
+      "timeouts": {
+        "connect_seconds": 10,
+        "read_seconds": 120
+      },
+      "features": [
+        {
+          "name": "logging",
+          "config": {
+            "stdout": true,
+            "file": {
+              "enabled": true,
+              "path": "/var/log/nichellm/proxy.jsonl",
+              "max_bytes": 10485760,
+              "backup_count": 5
+            },
+            "capture": {"bodies": false, "max_body_bytes": 1048576},
+            "redaction": {
+              "additional_header_names": [],
+              "additional_query_parameter_names": [],
+              "additional_json_field_names": []
+            }
+          }
+        }
+      ]
+    }
+  ]
+}
+```
+
+For Open WebUI, point the admin Images → Edit Image OpenAI base URL at this listener (for example `http://127.0.0.1:8000/v1`); its multipart request shape is accepted as-is.
+
 ### gemini-image mode
 
 `gemini-image` presents Google Gemini image generation through an OpenAI-compatible interface, using the Gemini API's OpenAI compatibility layer:
@@ -403,6 +481,8 @@ Complete `grok-image` example:
 In `gemini-image` mode, the proxy adds `response_format: "b64_json"` when the request omits it; validates that `n` is omitted or equal to 1, and rejects any other `n` value with HTTP 400 because Gemini returns a single image per request; rejects `response_format` values other than `b64_json`, and other invalid requests, with HTTP 400 before they reach the upstream; passes other keys such as `size` and `quality` through unchanged; and adds the configured `aspect_ratio` default only when the request has neither `size` nor `aspect_ratio`. Image data always comes back as base64-encoded JPEG. The `logging` feature works in this mode as in `passthrough`.
 
 Model availability for image generation through the OpenAI compatibility layer is restricted by Google to a whitelist. As of 2026-09-09, `gemini-3-pro-image-preview` is the only model verified to work, and `gemini-2.5-flash-image` is documented but reaches its end of life on 2026-10-02. The GA model names `gemini-3-pro-image` and `gemini-3.1-flash-image` currently return HTTP 404 through this layer and cannot be used.
+
+Note that the Gemini OpenAI compatibility layer offers no image editing endpoint: `POST /v1beta/openai/images/edits` returned HTTP 404 when verified on 2026-09-17. Image editing with Gemini models is therefore not available through this proxy (there is no `gemini-image-edit` mode).
 
 The `gemini_image` key is required inside a `gemini-image` listener entry; an entry that omits it is not started and is reported with a startup warning. In other modes the key is ignored with a startup warning. It supplies defaults that a direct request value overrides:
 
@@ -537,13 +617,13 @@ The `features` array in a listener entry may be omitted to run that listener wit
 - Multipart and binary bodies are not stored. Their byte count, SHA-256 digest, and omission reason are recorded instead. Truncated textual bodies are marked in the record.
 - `Authorization`, proxy authorization, cookies, API-key headers, and names containing `token`, `secret`, `password`, or `api_key` are redacted. Add project-specific names to the three `redaction` arrays. JSON redaction cannot reliably find secrets or personal data embedded in free-form prompts or tool output.
 
-The `grok-image` and `gemini-image` modes additionally emit an `upstream_request_sent` event — with the byte count and SHA-256 digest of the transformed request — at the moment the request is sent upstream.
+The image modes (`grok-image`, `grok-image-edit`, and `gemini-image`) additionally emit an `upstream_request_sent` event — with the byte count and SHA-256 digest of the transformed request — at the moment the request is sent upstream.
 
 Enabling body capture intentionally stores user prompts and model output. Use it only in a trusted environment, restrict access to the log volume, and set an operational retention/deletion policy.
 
 ### Not supported
 
-Besides the relay behavior described above, the proxy provides no protocol conversion or provider adapters other than the `grok-image` and `gemini-image` conversions. It also does not provide webhook receiving or signature verification, Administration API operations, rate limiting, proxy authentication, or TLS termination. The `featherless` mode manages API keys only on the client side; proxy-side key management and a whitelist administration API are not provided.
+Besides the relay behavior described above, the proxy provides no protocol conversion or provider adapters other than the `grok-image`, `grok-image-edit`, and `gemini-image` conversions. It also does not provide webhook receiving or signature verification, Administration API operations, rate limiting, proxy authentication, or TLS termination. The `featherless` mode manages API keys only on the client side; proxy-side key management and a whitelist administration API are not provided.
 
 ## Security
 
@@ -564,6 +644,10 @@ Representative startup errors and what to check:
 Error messages the proxy generates are localized with `NICHELLM_LANGUAGE` (English by default, Japanese with `ja`).
 
 ## Changelog
+
+### v1.5.0 (2026-09-17)
+
+- Added the `grok-image-edit` mode: presents Grok (xAI) image editing (`POST /v1/images/edits`) through an OpenAI-compatible interface. OpenAI-style `multipart/form-data` edit requests are translated to the xAI JSON edit API, with file parts converted to base64 data URIs (`image`/`image[]` → `image`/`images`), the usual OpenAI-only parameter removal, `aspect_ratio`/`resolution` defaults, and `created` completion. `GET /v1/models` and `GET /v1/image-generation-models` pass through. This lets OpenAI SDK clients (including `images.edit()`, which the xAI API rejects natively for being multipart) and Open WebUI edit images via Grok. Masks are rejected with HTTP 400 because xAI has no mask support.
 
 ### v1.4.3 (2026-09-16)
 

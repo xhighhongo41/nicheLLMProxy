@@ -53,6 +53,24 @@
       }
     },
     {
+      // xAI Grok image editing on port 8004.
+      "port": 8004,
+      "mode": "grok-image-edit",
+      "grok_image_edit": {
+        "default_model": "grok-imagine-image-2.0",
+        "aspect_ratio": "1:1",
+        "resolution": "1k"
+      },
+      "upstream": {
+        "base_url": "https://api.x.ai",
+        "api_key_env": "XAI_API_KEY"
+      },
+      "timeouts": {
+        "connect_seconds": 10,
+        "read_seconds": 120
+      }
+    },
+    {
       // featherless.ai relay on port 8003. The client's Authorization header
       // is relayed as-is, so no api_key_env appears on this listener.
       "port": 8003,

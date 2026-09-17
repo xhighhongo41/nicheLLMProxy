@@ -1,0 +1,23 @@
+{
+  // Configuration for nicheLLM Proxy (v1.4 schema), xAI Grok image edit mode.
+  // OpenAI-style multipart image edit requests are converted to the xAI JSON edit API.
+  "listeners": [
+    {
+      "port": 8000,
+      "mode": "grok-image-edit",
+      "grok_image_edit": {
+        "default_model": "grok-imagine-image-2.0",
+        "aspect_ratio": "1:1",
+        "resolution": "1k"
+      },
+      "upstream": {
+        "base_url": "https://api.x.ai",
+        "api_key_env": "XAI_API_KEY"
+      },
+      "timeouts": {
+        "connect_seconds": 10,
+        "read_seconds": 120
+      }
+    }
+  ]
+}
