@@ -223,6 +223,7 @@ def test_load_config_rejects_invalid_logging_feature(
     ("mode", "section"),
     [
         ("grok-image", "grok_image"),
+        ("grok-image-edit", "grok_image_edit"),
         ("gemini-image", "gemini_image"),
         ("featherless", "featherless"),
     ],
@@ -255,7 +256,9 @@ def test_load_config_skips_listener_when_mode_section_is_missing(
     assert config.warnings == (expected_warning,)
 
 
-@pytest.mark.parametrize("mode", ["grok-image", "gemini-image", "featherless"])
+@pytest.mark.parametrize(
+    "mode", ["grok-image", "grok-image-edit", "gemini-image", "featherless"]
+)
 def test_load_config_rejects_config_with_only_skipped_listeners(
     write_config: Callable[[dict[str, object] | None], Path],
     make_listener: Callable[[dict[str, object]], dict[str, object]],
@@ -626,7 +629,7 @@ def test_load_config_reports_supported_modes_in_mode_error(
 
     with pytest.raises(
         ConfigError,
-        match="must be 'passthrough', 'grok-image', 'gemini-image' or 'featherless'",
+        match="must be 'passthrough', 'grok-image', 'grok-image-edit', 'gemini-image' or 'featherless'",
     ):
         load_config(config_path)
 
@@ -1417,3 +1420,132 @@ def test_load_config_has_no_warning_for_distinct_log_file_paths(
     config = load_config(write_config({"listeners": listeners}))
 
     assert config.warnings == ()
+
+
+def test_load_config_reads_grok_image_edit_settings(
+    monkeypatch: pytest.MonkeyPatch,
+    write_config: Callable[[dict[str, object] | None], Path],
+    make_listener: Callable[[dict[str, object]], dict[str, object]],
+) -> None:
+    """Read explicit grok-image-edit settings into the configuration object."""
+    monkeypatch.setenv("UPSTREAM_API_KEY", "secret-value")
+    listener = make_listener(
+        {
+            "mode": "grok-image-edit",
+            "grok_image_edit": {
+                "default_model": "grok-image-edit-beta",
+                "aspect_ratio": "1:1",
+                "resolution": "2k",
+            },
+        }
+    )
+    config = load_config(write_config({"listeners": [listener]}))
+    grok_image_edit = config.listeners[0].listener.grok_image_edit
+
+    assert grok_image_edit is not None
+    assert grok_image_edit.default_model == "grok-image-edit-beta"
+    assert grok_image_edit.aspect_ratio == "1:1"
+    assert grok_image_edit.resolution == "2k"
+
+
+def test_load_config_warns_on_grok_image_edit_in_passthrough_mode(
+    monkeypatch: pytest.MonkeyPatch,
+    write_config: Callable[[dict[str, object] | None], Path],
+    make_listener: Callable[[dict[str, object]], dict[str, object]],
+) -> None:
+    """Warn when grok-image-edit settings appear in another listener mode."""
+    monkeypatch.setenv("UPSTREAM_API_KEY", "secret-value")
+    listener = make_listener({"grok_image_edit": {"resolution": "1k"}})
+    config = load_config(write_config({"listeners": [listener]}))
+
+    expected_warning = (
+        "listener.grok_image_edit is ignored because listener.mode is not 'grok-image-edit'."
+    )
+    assert config.listeners[0].listener.grok_image_edit is None
+    assert config.listeners[0].warnings == (expected_warning,)
+
+
+@pytest.mark.parametrize("grok_image_edit", ["x", ["x"], 123, True, None])
+def test_load_config_rejects_non_object_grok_image_edit(
+    monkeypatch: pytest.MonkeyPatch,
+    write_config: Callable[[dict[str, object] | None], Path],
+    make_listener: Callable[[dict[str, object]], dict[str, object]],
+    grok_image_edit: object,
+) -> None:
+    """Reject grok-image-edit settings that are not JSON objects."""
+    monkeypatch.setenv("UPSTREAM_API_KEY", "secret-value")
+
+    with pytest.raises(ConfigError, match="must be an object"):
+        load_config(
+            write_config(
+                {"listeners": [make_listener({"mode": "grok-image-edit", "grok_image_edit": grok_image_edit})]}
+            )
+        )
+
+
+def test_load_config_rejects_unknown_grok_image_edit_field(
+    monkeypatch: pytest.MonkeyPatch,
+    write_config: Callable[[dict[str, object] | None], Path],
+    make_listener: Callable[[dict[str, object]], dict[str, object]],
+) -> None:
+    """Reject grok-image-edit settings with an unknown field."""
+    monkeypatch.setenv("UPSTREAM_API_KEY", "secret-value")
+    listener = make_listener(
+        {"mode": "grok-image-edit", "grok_image_edit": {"size": "1k"}}
+    )
+
+    with pytest.raises(ConfigError, match="unknown"):
+        load_config(write_config({"listeners": [listener]}))
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("default_model", ""),
+        ("default_model", 123),
+        ("aspect_ratio", ""),
+        ("aspect_ratio", 123),
+    ],
+)
+def test_load_config_rejects_invalid_grok_image_edit_string_field(
+    monkeypatch: pytest.MonkeyPatch,
+    write_config: Callable[[dict[str, object] | None], Path],
+    make_listener: Callable[[dict[str, object]], dict[str, object]],
+    field: str,
+    value: object,
+) -> None:
+    """Reject non-string and empty grok-image-edit string settings."""
+    monkeypatch.setenv("UPSTREAM_API_KEY", "secret-value")
+    listener = make_listener(
+        {"mode": "grok-image-edit", "grok_image_edit": {field: value}}
+    )
+
+    with pytest.raises(ConfigError, match="non-empty string"):
+        load_config(write_config({"listeners": [listener]}))
+
+
+@pytest.mark.parametrize(
+    ("resolution", "should_load"),
+    [("1k", True), ("2k", True), ("3k", False), ("", False), (123, False), (["1k"], False)],
+)
+def test_load_config_validates_grok_image_edit_resolution(
+    monkeypatch: pytest.MonkeyPatch,
+    write_config: Callable[[dict[str, object] | None], Path],
+    make_listener: Callable[[dict[str, object]], dict[str, object]],
+    resolution: object,
+    should_load: bool,
+) -> None:
+    """Only allow the documented grok-image-edit resolutions."""
+    monkeypatch.setenv("UPSTREAM_API_KEY", "secret-value")
+    listener = make_listener(
+        {"mode": "grok-image-edit", "grok_image_edit": {"resolution": resolution}}
+    )
+    config_path = write_config({"listeners": [listener]})
+
+    if should_load:
+        config = load_config(config_path)
+        assert config.listeners[0].listener.grok_image_edit is not None
+        assert config.listeners[0].listener.grok_image_edit.resolution == resolution
+    else:
+        with pytest.raises(ConfigError, match="resolution"):
+            load_config(config_path)
