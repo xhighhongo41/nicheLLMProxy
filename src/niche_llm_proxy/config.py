@@ -64,6 +64,7 @@ class _ListenerSkipped(Exception):
 
 _MODE_SECTIONS = {
     "grok-image": "grok_image",
+    "grok-image-edit": "grok_image_edit",
     "gemini-image": "gemini_image",
     "featherless": "featherless",
 }
@@ -80,6 +81,7 @@ class ListenerConfig:
     port: int
     mode: str
     grok_image: GrokImageConfig | None = None
+    grok_image_edit: GrokImageEditConfig | None = None
     gemini_image: GeminiImageConfig | None = None
     featherless: FeatherlessConfig | None = None
     features: tuple[LoggingFeatureConfig, ...] = ()
@@ -98,6 +100,15 @@ class FeatherlessConfig:
 @dataclass(frozen=True)
 class GrokImageConfig:
     """Optional grok-image mode settings for image generation."""
+
+    default_model: str | None = None
+    aspect_ratio: str | None = None
+    resolution: str | None = None
+
+
+@dataclass(frozen=True)
+class GrokImageEditConfig:
+    """Optional grok-image-edit mode settings for image editing."""
 
     default_model: str | None = None
     aspect_ratio: str | None = None
@@ -349,6 +360,7 @@ def _listener_runtime(
         port=port,
         mode=mode,
         grok_image=_grok_image(listener_data, mode, warnings),
+        grok_image_edit=_grok_image_edit(listener_data, mode, warnings),
         gemini_image=_gemini_image(listener_data, mode, warnings),
         featherless=_featherless(listener_data, mode, warnings),
         features=_features(listener_data, warnings),
@@ -519,13 +531,14 @@ def _mode(listener: Mapping[str, Any]) -> str:
     if not isinstance(mode, str) or mode not in {
         "passthrough",
         "grok-image",
+        "grok-image-edit",
         "gemini-image",
         "featherless",
     }:
         raise ConfigError(
             translate(
                 "listener.mode must be 'passthrough', 'grok-image', "
-                "'gemini-image' or 'featherless'."
+                "'grok-image-edit', 'gemini-image' or 'featherless'."
             )
         )
     return mode
@@ -587,6 +600,66 @@ def _grok_image_resolution(config: Mapping[str, Any]) -> str | None:
     if not isinstance(value, str) or value not in {"1k", "2k"}:
         raise ConfigError(
             translate("listener.grok_image.resolution must be '1k' or '2k'.")
+        )
+    return value
+
+
+def _grok_image_edit(
+    listener: Mapping[str, Any],
+    mode: str,
+    warnings: list[str],
+) -> GrokImageEditConfig | None:
+    """Validate the optional grok_image_edit settings for the grok-image-edit listener."""
+
+    if "grok_image_edit" not in listener:
+        return None
+    if mode != "grok-image-edit":
+        warnings.append(
+            translate(
+                "listener.grok_image_edit is ignored because "
+                "listener.mode is not 'grok-image-edit'."
+            )
+        )
+        return None
+    value = _required_object(listener, "grok_image_edit")
+    _reject_unknown_keys(
+        value,
+        {"default_model", "aspect_ratio", "resolution"},
+        "listener.grok_image_edit",
+    )
+    return GrokImageEditConfig(
+        default_model=_grok_image_edit_string(value, "default_model"),
+        aspect_ratio=_grok_image_edit_string(value, "aspect_ratio"),
+        resolution=_grok_image_edit_resolution(value),
+    )
+
+
+def _grok_image_edit_string(config: Mapping[str, Any], key: str) -> str | None:
+    """Validate an optional non-empty grok_image_edit string setting."""
+
+    if key not in config or config[key] is None:
+        return None
+    value = config[key]
+    if not isinstance(value, str) or not value.strip():
+        raise ConfigError(
+            translate(
+                "listener.grok_image_edit.{key} must be a non-empty string.",
+                key=key,
+            )
+        )
+    return value
+
+
+def _grok_image_edit_resolution(config: Mapping[str, Any]) -> str | None:
+    """Validate the optional grok_image_edit resolution setting."""
+
+    key = "resolution"
+    if key not in config or config[key] is None:
+        return None
+    value = config[key]
+    if not isinstance(value, str) or value not in {"1k", "2k"}:
+        raise ConfigError(
+            translate("listener.grok_image_edit.resolution must be '1k' or '2k'.")
         )
     return value
 

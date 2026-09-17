@@ -45,8 +45,8 @@ msgstr "設定項目 '{key}' はオブジェクトである必要があります
 msgid "listener.port must be an integer between 1 and 65535."
 msgstr "listener.port は1から65535までの整数である必要があります。"
 
-msgid "listener.mode must be 'passthrough', 'grok-image', 'gemini-image' or 'featherless'."
-msgstr "listener.mode は 'passthrough'、'grok-image'、'gemini-image' または 'featherless' である必要があります。"
+msgid "listener.mode must be 'passthrough', 'grok-image', 'grok-image-edit', 'gemini-image' or 'featherless'."
+msgstr "listener.mode は 'passthrough'、'grok-image'、'grok-image-edit'、'gemini-image' または 'featherless' である必要があります。"
 
 msgid "listener.grok_image.{key} must be a non-empty string."
 msgstr "listener.grok_image.{key} は空でない文字列である必要があります。"
@@ -213,3 +213,36 @@ msgstr "listener.featherless は listener.mode が 'featherless' でないため
 
 msgid "logging.file settings were ignored because logging.file.enabled is false."
 msgstr "logging.file.enabled が false のため、logging.file の設定は無視されました。"
+
+msgid "Request body must be multipart/form-data in 'grok-image-edit' mode."
+msgstr "'grok-image-edit' モードでは、リクエスト本文は multipart/form-data である必要があります。"
+
+msgid "Malformed multipart/form-data body."
+msgstr "multipart/form-data ボディの形式が不正です。"
+
+msgid "mask is not supported in 'grok-image-edit' mode."
+msgstr "'grok-image-edit' モードでは mask はサポートされていません。"
+
+msgid "Unsupported image type. Only PNG, JPEG and WebP are accepted."
+msgstr "サポートされていない画像形式です。PNG、JPEG、WebP のみ受け付けます。"
+
+msgid "'image' must be an http(s) or data URL when sent as a text field."
+msgstr "テキストフィールドとして送信される 'image' は http(s) または data URL である必要があります。"
+
+msgid "At least one input image is required."
+msgstr "入力画像は1つ以上必要です。"
+
+msgid "Unexpected file part '{name}' was rejected."
+msgstr "予期しないファイルパート '{name}' は拒否されました。"
+
+msgid "listener.grok_image_edit.{key} must be a non-empty string."
+msgstr "listener.grok_image_edit.{key} は空でない文字列である必要があります。"
+
+msgid "listener.grok_image_edit.resolution must be '1k' or '2k'."
+msgstr "listener.grok_image_edit.resolution は '1k' または '2k' である必要があります。"
+
+msgid "listener.grok_image_edit is ignored because listener.mode is not 'grok-image-edit'."
+msgstr "listener.grok_image_edit は listener.mode が 'grok-image-edit' でないため無視されました。"
+
+msgid "This path is not supported in 'grok-image-edit' mode."
+msgstr "この経路は 'grok-image-edit' モードではサポートされていません。"

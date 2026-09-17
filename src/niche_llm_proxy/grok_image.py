@@ -168,7 +168,7 @@ async def handle_grok_image_generations(
         upstream_transport,
         request,
         request.url.path,
-        transform_request=lambda body: transform_request_body(
+        transform_request=lambda body, content_type: transform_request_body(
             body, config.listener.grok_image
         ),
         transform_response=ensure_created,

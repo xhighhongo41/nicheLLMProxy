@@ -1,6 +1,6 @@
 # nicheLLM Proxy
 
-nicheLLM Proxyは、OpenAI互換クライアントと上流LLMプロバイダーの間でHTTPリクエストとレスポンスを中継します。`passthrough`モードは変換せずに転送し、v1.1で追加された`grok-image`モードはGrok(xAI)の画像生成をOpenAI互換インターフェースとして提供し、v1.2で追加された`gemini-image`モードはGoogle Geminiの画像生成をOpenAI互換インターフェースとして提供し、v1.3で追加された`featherless`モードはfeatherless.aiをモデルホワイトリストとAPIキーごとの同時リクエストキューイングで提供します。v1.4からは、1プロセスで複数のリスナーを異なるモードで並行に待ち受けられます。いずれのモードも信頼できるネットワーク内での動作を前提とし、opt-inの構造化プロトコルログに対応します。
+nicheLLM Proxyは、OpenAI互換クライアントと上流LLMプロバイダーの間でHTTPリクエストとレスポンスを中継します。`passthrough`モードは変換せずに転送し、v1.1で追加された`grok-image`モードはGrok(xAI)の画像生成をOpenAI互換インターフェースとして提供し、v1.2で追加された`gemini-image`モードはGoogle Geminiの画像生成をOpenAI互換インターフェースとして提供し、v1.3で追加された`featherless`モードはfeatherless.aiをモデルホワイトリストとAPIキーごとの同時リクエストキューイングで提供し、v1.5で追加された`grok-image-edit`モードはGrokの画像編集をOpenAI互換インターフェースとして提供します。v1.4からは、1プロセスで複数のリスナーを異なるモードで並行に待ち受けられます。いずれのモードも信頼できるネットワーク内での動作を前提とし、opt-inの構造化プロトコルログに対応します。
 
 [English README](README.md)
 
@@ -54,7 +54,7 @@ docker compose exec nichellm-proxy sh -c 'ls -lh /var/log/nichellm'
 公開済みのmulti-platform(`linux/amd64`、`linux/arm64`)イメージは`xhighhongo41/nichellm-proxy`で入手できます。本番では正確なバージョンタグを利用してください。`1.3`や`latest`のようなローリングタグも存在します。
 
 ```bash
-docker pull xhighhongo41/nichellm-proxy:1.4.3
+docker pull xhighhongo41/nichellm-proxy:1.5.0
 ```
 
 イメージにはAPIキーも設定ファイルも含まれません。Composeファイルと同じ場所に、設定で使うAPIキー変数を記した`.env`ファイルを作成し([APIキー管理](#apiキー管理)を参照)、作業ディレクトリに`config.jsonc`([設定](#設定)の完全な例から始めてください)と次のComposeファイルを配置します。
@@ -62,7 +62,7 @@ docker pull xhighhongo41/nichellm-proxy:1.4.3
 ```yaml
 services:
   nichellm-proxy:
-    image: xhighhongo41/nichellm-proxy:1.4.3
+    image: xhighhongo41/nichellm-proxy:1.5.0
     # config.jsoncで定義したリスナーポートごとに1つのマッピングを追加。
     ports:
       - "127.0.0.1:8000:8000"
@@ -152,7 +152,7 @@ git pull
 docker compose up --build -d
 ```
 
-公開Docker Hubイメージで実行している場合: Composeファイル内のイメージタグを更新し(例: `xhighhongo41/nichellm-proxy:1.4.3`)、次を実行します。
+公開Docker Hubイメージで実行している場合: Composeファイル内のイメージタグを更新し(例: `xhighhongo41/nichellm-proxy:1.5.0`)、次を実行します。
 
 ```bash
 docker compose pull
@@ -170,17 +170,18 @@ uv sync
 
 ### 設定ファイル
 
-プロキシは、必須の設定ファイルを1つ読み込みます。5つのテンプレートがリポジトリに含まれます(公開イメージだけで実行する場合も、GitHubから取得してください)。
+プロキシは、必須の設定ファイルを1つ読み込みます。6つのテンプレートがリポジトリに含まれます(公開イメージだけで実行する場合も、GitHubから取得してください)。
 
 - `config.example.jsonc` — `passthrough`モード(下記)
-- `config.multi-listener.example.jsonc` — 4モード全部をポート8000〜8003で
+- `config.multi-listener.example.jsonc` — 5モード全部をポート8000〜8004で
 - `config.grok-image.example.jsonc` — `grok-image`モード
+- `config.grok-image-edit.example.jsonc` — `grok-image-edit`モード
 - `config.gemini-image.example.jsonc` — `gemini-image`モード
 - `config.featherless.example.jsonc` — `featherless`モード
 
 コンテナ内での既定パスは`/app/config/config.jsonc`を優先し、JSONCファイルが存在しない場合は`/app/config/config.json`へフォールバックします。上記のDocker Compose手順では、ローカルの`config.jsonc`を優先パスへマウントします。ホスト実行では`NICHELLM_CONFIG_PATH`でパスを指定してください。
 
-設定ファイルはJSONCに対応します。`//`の行コメントと`/* */`のブロックコメントは拡張子にかかわらず利用でき、文字列値の中のコメント記号(例: URL内の`//`)は保持されます。設定には必須の最上位`listeners`配列が1つあります。各項目は1つの完全で独立したリスナーで、1つのポートを束ね、独自の`mode`、`upstream`、`timeouts`、任意のモード固有ブロック、任意の`features`を持ちます。1プロセスが全項目を並行に待ち受けます。`config.multi-listener.example.jsonc`は4モード全部をポート8000〜8003で組み合わせた例です。ポートは一意である必要があり、重複は設定エラーとして拒否されます。
+設定ファイルはJSONCに対応します。`//`の行コメントと`/* */`のブロックコメントは拡張子にかかわらず利用でき、文字列値の中のコメント記号(例: URL内の`//`)は保持されます。設定には必須の最上位`listeners`配列が1つあります。各項目は1つの完全で独立したリスナーで、1つのポートを束ね、独自の`mode`、`upstream`、`timeouts`、任意のモード固有ブロック、任意の`features`を持ちます。1プロセスが全項目を並行に待ち受けます。`config.multi-listener.example.jsonc`は5モード全部をポート8000〜8004で組み合わせた例です。ポートは一意である必要があり、重複は設定エラーとして拒否されます。
 
 `passthrough`の設定例:
 
@@ -230,7 +231,7 @@ uv sync
 |キー|型・制約|既定値|
 |---|---|---|
 |`listeners[].port`|1〜65535の整数(必須)|—|
-|`listeners[].mode`|`passthrough`、`grok-image`、`gemini-image`、または`featherless`(必須)|—|
+|`listeners[].mode`|`passthrough`、`grok-image`、`grok-image-edit`、`gemini-image`、または`featherless`(必須)|—|
 |`listeners[].upstream.base_url`|query・fragmentを含まないhttp/https URL(必須)|—|
 |`listeners[].upstream.api_key_env`|空でない文字列。APIキーを保持する環境変数の名前(`featherless`モード以外は必須。`featherless`モードでは指定自体がエラー)|—|
 |`listeners[].timeouts.connect_seconds`|正の数|10.0|
@@ -238,7 +239,7 @@ uv sync
 
 `timeouts`オブジェクト自体も省略でき、既定値のあるキーはすべて省略できます。複数のリスナーが同じ`upstream`設定を繰り返して、1つの上流プロバイダーを共有できます。同梱`docker-compose.yml`のhealthcheckはマウントされた`config.jsonc`からリスナーポートを読み取り、それぞれを確認するため、どのポートの組み合わせでも正確に機能します。
 
-モード固有のキー(リスナー項目内の`grok_image`、`gemini_image`、`featherless`)と、任意の`features`のloggingフィーチャーは[モードとフィーチャー](#モードとフィーチャー)で説明します。`grok-image`・`gemini-image`・`featherless`の各モードではモード固有キーが必須です。これらのモードのリスナー項目でモード固有キーが欠落している場合、そのリスナーは起動対象から外れ、ポート・モード・欠落キー名を含む起動時警告が標準エラー出力に表示され、他のリスナーは通常どおり起動します。`passthrough`にモード固有キーはありません。全リスナーがこの方法でスキップされた場合、起動は設定エラーで失敗します。モード固有オブジェクト内の未知キーと不正な値は、起動時の設定エラーとして拒否されます。項目の`mode`に属さないモード固有ブロック、最上位の未知キー、`logging.file.enabled`が`false`のときに無視される`logging.file`の設定は、起動時の警告として報告されて無視されます。プロキシは起動を続け、警告は1件ずつ標準エラー出力に表示されるため、設定が効いていないように見える場合はキーのスペル(例: `timeouts`を`timouts`と書く)と起動時の警告を確認してください。各モードの完全な例は`config.grok-image.example.jsonc`、`config.gemini-image.example.jsonc`、`config.featherless.example.jsonc`にあります。
+モード固有のキー(リスナー項目内の`grok_image`、`grok_image_edit`、`gemini_image`、`featherless`)と、任意の`features`のloggingフィーチャーは[モードとフィーチャー](#モードとフィーチャー)で説明します。`grok-image`・`grok-image-edit`・`gemini-image`・`featherless`の各モードではモード固有キーが必須です。これらのモードのリスナー項目でモード固有キーが欠落している場合、そのリスナーは起動対象から外れ、ポート・モード・欠落キー名を含む起動時警告が標準エラー出力に表示され、他のリスナーは通常どおり起動します。`passthrough`にモード固有キーはありません。全リスナーがこの方法でスキップされた場合、起動は設定エラーで失敗します。モード固有オブジェクト内の未知キーと不正な値は、起動時の設定エラーとして拒否されます。項目の`mode`に属さないモード固有ブロック、最上位の未知キー、`logging.file.enabled`が`false`のときに無視される`logging.file`の設定は、起動時の警告として報告されて無視されます。プロキシは起動を続け、警告は1件ずつ標準エラー出力に表示されるため、設定が効いていないように見える場合はキーのスペル(例: `timeouts`を`timouts`と書く)と起動時の警告を確認してください。各モードの完全な例は`config.grok-image.example.jsonc`、`config.grok-image-edit.example.jsonc`、`config.gemini-image.example.jsonc`、`config.featherless.example.jsonc`にあります。
 
 ### 環境変数
 
@@ -274,12 +275,13 @@ Docker Composeでは、Composeファイルと同じ場所に置いた`.env`フ�
 
 ## モードとフィーチャー
 
-各リスナー項目の`mode`には`passthrough`、`grok-image`、`gemini-image`、または`featherless`を指定でき、1プロセスが設定された全リスナーを並行に待ち受けます。`GET /health`はどのモードでも動作し、各ポートが自身の`status`、`version`、`mode`、有効なフィーチャー名を返します。起動時には、プロキシのバージョンとリスナー数を示す集計行を1行、続けて各リスナーのポート・モード・有効なフィーチャー名を示す行を1行ずつ標準出力へ表示し、設定警告は1件ずつ標準エラー出力に表示します。リスナー個別の警告には`[port N]`接頭辞が付きます。リスナー数とリスナー行は実際に起動したリスナーのみが対象で、モード固有キー欠落でスキップされたリスナーは警告行を通じてのみ報告されます。上流エラーはステータスと本文をそのまま透過し、上流への接続・読取失敗は`passthrough`と同じ502/504応答を返します。
+各リスナー項目の`mode`には`passthrough`、`grok-image`、`grok-image-edit`、`gemini-image`、または`featherless`を指定でき、1プロセスが設定された全リスナーを並行に待ち受けます。`GET /health`はどのモードでも動作し、各ポートが自身の`status`、`version`、`mode`、有効なフィーチャー名を返します。起動時には、プロキシのバージョンとリスナー数を示す集計行を1行、続けて各リスナーのポート・モード・有効なフィーチャー名を示す行を1行ずつ標準出力へ表示し、設定警告は1件ずつ標準エラー出力に表示します。リスナー個別の警告には`[port N]`接頭辞が付きます。リスナー数とリスナー行は実際に起動したリスナーのみが対象で、モード固有キー欠落でスキップされたリスナーは警告行を通じてのみ報告されます。上流エラーはステータスと本文をそのまま透過し、上流への接続・読取失敗は`passthrough`と同じ502/504応答を返します。
 
 |モード・フィーチャー|機能|設定|
 |---|---|---|
 |`passthrough`|OpenAI互換APIを無変換で中継|`upstream`|
 |`grok-image`|Grok(xAI)の画像生成をOpenAI互換インターフェースとして提供|`grok_image`|
+|`grok-image-edit`|Grokの画像編集をOpenAI互換インターフェースとして提供|`grok_image_edit`|
 |`gemini-image`|Google Geminiの画像生成をOpenAI互換インターフェースとして提供|`gemini_image`|
 |`featherless`|featherless.aiをモデルホワイトリストとAPIキーごとの同時リクエストキューイングで中継|`featherless`|
 |`logging`フィーチャー|構造化プロトコルログ。全モードで利用可能|`features`|
@@ -387,6 +389,82 @@ Realtime APIとResponses WebSocket modeを含むWebSocket、WebRTC、SIP通信�
 }
 ```
 
+### grok-image-editモード
+
+`grok-image-edit`は、Grok(xAI)の画像編集をOpenAI互換インターフェースとして提供します。xAIの画像編集APIはJSON形式ですが、OpenAI Images編集APIは`multipart/form-data`形式です。このモードは両者を相互変換するため、OpenAI SDKクライアント(`client.images.edit()`を含む)とOpen WebUIがそのまま利用できます。
+
+|経路|メソッド|動作|
+|---|---|---|
+|`/v1/images/edits`|POST|OpenAI Images編集リクエスト(multipart/form-data)をxAIのJSON編集APIへ変換して転送し、応答をOpenAI互換に整形|
+|`/v1/models`|GET|上流へ無変換で転送|
+|`/v1/image-generation-models`|GET|上流へ無変換で転送|
+|上記以外の経路|任意|ローカライズ済みエラーを伴うHTTP 404|
+|上記経路の未対応メソッド|—|ローカライズ済みエラーを伴うHTTP 405|
+
+`grok-image-edit`モードでは、プロキシは`multipart/form-data`の本文のみを受け付け(それ以外のContent-TypeはHTTP 400で拒否)、次のように変換します。
+
+- `image`(1枚)または`image[]`(複数回)という名前のファイルパートは、base64 data URIとして`image: {"url": "data:..."}`または`images: [{"url": "data:..."}, ...]`へ変換します。入力画像はPNG・JPEG・WebPのみ(ファイル内容から自動判定)で、それ以外はHTTP 400で拒否します。入力画像は1枚以上必須で、最大5枚まで受け付けます。テキストフィールドの`image`/`image[]`が`http(s)://`または`data:` URLの場合はそのまま透過します。
+- `mask`パートはHTTP 400で拒否します(xAIにmask機能がないため。黙って落とすより明示的に失敗させる方が安全です)。
+- `prompt`は必須・空文字不可。`model`は不在・空文字なら設定の`default_model`で補完します(Open WebUIは`IMAGE_EDIT_MODEL`未設定だと空文字を送ります)。`n`は1〜10の整数。`response_format`は省略時`b64_json`を補完し(明示的な`url`も受理)、それ以外はHTTP 400で拒否します。
+- OpenAI専用パラメータの`size`、`quality`、`style`、`seed`、`background`、`moderation`、`output_format`、`output_compression`を除去します。設定の`aspect_ratio`と`resolution`の既定値は、リクエストにない場合のみ付与します。`storage_options`などそれ以外のキーはそのまま透過します。未知のファイルパートはHTTP 400で拒否します。
+- 応答は、上流が`created`を返さない場合にのみ補完します。`usage.cost_in_usd_ticks`など本文のそれ以外の部分は無変換で透過します。
+
+`logging`フィーチャーはこのモードでも`passthrough`と同様に機能し、`upstream_request_sent`イベントも出力します。
+
+`grok_image_edit`キーは`grok-image-edit`リスナー項目内では必須です。欠落している項目は起動対象から外れ、起動時警告として報告されます。他のモードでは起動時警告付きで無視されます。リクエストでの直接指定が優先される既定値を持ちます。
+
+- `default_model`: リクエストに`model`がない(または空文字の)場合に使う既定モデル。リクエスト・設定の双方にない場合はHTTP 400を返します。
+- `aspect_ratio`: リクエストに`aspect_ratio`がない場合に付与します(例: `1:1`、`16:9`)。
+- `resolution`: リクエストに`resolution`がない場合に付与します。`1k`または`2k`です。
+
+完全な`grok-image-edit`設定例:
+
+```json
+{
+  "listeners": [
+    {
+      "port": 8000,
+      "mode": "grok-image-edit",
+      "grok_image_edit": {
+        "default_model": "grok-imagine-image-2.0",
+        "aspect_ratio": "1:1",
+        "resolution": "1k"
+      },
+      "upstream": {
+        "base_url": "https://api.x.ai",
+        "api_key_env": "XAI_API_KEY"
+      },
+      "timeouts": {
+        "connect_seconds": 10,
+        "read_seconds": 120
+      },
+      "features": [
+        {
+          "name": "logging",
+          "config": {
+            "stdout": true,
+            "file": {
+              "enabled": true,
+              "path": "/var/log/nichellm/proxy.jsonl",
+              "max_bytes": 10485760,
+              "backup_count": 5
+            },
+            "capture": {"bodies": false, "max_body_bytes": 1048576},
+            "redaction": {
+              "additional_header_names": [],
+              "additional_query_parameter_names": [],
+              "additional_json_field_names": []
+            }
+          }
+        }
+      ]
+    }
+  ]
+}
+```
+
+Open WebUIでは、管理者設定のImages → Edit ImageのOpenAIベースURLをこのリスナー(例: `http://127.0.0.1:8000/v1`)に向けてください。Open WebUIのmultipartリクエスト形状をそのまま受け付けます。
+
 ### gemini-imageモード
 
 `gemini-image`は、Gemini APIのOpenAI互換層を使って、Google Geminiの画像生成をOpenAI互換インターフェースとして提供します。
@@ -401,6 +479,8 @@ Realtime APIとResponses WebSocket modeを含むWebSocket、WebRTC、SIP通信�
 `gemini-image`モードでは、プロキシはリクエストに`response_format`がなければ`b64_json`を付与し、`n`は省略可または1のみであることを検証し(Geminiはリクエストごとに1枚しか返さないため、それ以外の`n`はHTTP 400で拒否)、`response_format`が`b64_json`以外の場合やその他不正リクエストは上流へ送る前にHTTP 400で拒否し、`size`や`quality`などそれ以外のキーはそのまま透過し、リクエストに`size`と`aspect_ratio`の両方がない場合にのみ設定した`aspect_ratio`既定値を付与します。画像データは常にbase64エンコードされたJPEGで返ります。`logging`フィーチャーはこのモードでも`passthrough`と同様に機能します。
 
 OpenAI互換層での画像生成に使えるモデルは、Googleによるホワイトリストに制限されます。2026-09-09時点で動作を確認済みなのは`gemini-3-pro-image-preview`のみで、`gemini-2.5-flash-image`は公式文書に記載がありますが2026-10-02に提供終了予定です。GA名の`gemini-3-pro-image`と`gemini-3.1-flash-image`は現在この層経由ではHTTP 404となり利用できません。
+
+なお、Gemini APIのOpenAI互換層には画像編集エンドポイントがありません。`POST /v1beta/openai/images/edits`は2026-09-17の確認時点でHTTP 404を返します。このためGeminiモデルによる画像編集はこのプロキシ経由では利用できません(`gemini-image-edit`モードは存在しません)。
 
 `gemini_image`キーは`gemini-image`リスナー項目内では必須です。欠落している項目は起動対象から外れ、起動時警告として報告されます。他のモードでは起動時警告付きで無視されます。リクエストでの直接指定が優先される既定値を持ちます。
 
@@ -535,13 +615,13 @@ curl -s 'https://api.featherless.ai/v1/models?per_page=100' | jq -r '.data[].id'
 - multipartとバイナリ本文は保存しません。バイト数、SHA-256 digest、省略理由だけを記録します。テキスト本文が上限で切れた場合はレコードに明記します。
 - `Authorization`、プロキシ自身の認証情報、Cookie、APIキーヘッダー、`token`、`secret`、`password`、`api_key`を含む名前の値はマスクします。プロジェクト固有の名前は3つの`redaction`配列へ追加してください。自由文形式のプロンプトやツール出力に埋め込まれた秘密情報・個人情報をJSON redactionで確実に検出することはできません。
 
-`grok-image`と`gemini-image`の各モードでは、上流へのリクエスト送出時点で、変換後リクエストのバイト数とSHA-256 digestを記録した`upstream_request_sent`イベントも出力します。
+`grok-image`・`grok-image-edit`・`gemini-image`の各モードでは、上流へのリクエスト送出時点で、変換後リクエストのバイト数とSHA-256 digestを記録した`upstream_request_sent`イベントも出力します。
 
 本文captureを有効にすると、ユーザープロンプトとモデル出力を意図的に保存します。信頼できる環境だけで有効にし、ログボリュームへのアクセス制御と保持・削除方針を定めてください。
 
 ### サポートしないこと
 
-上記の中継動作に加えて、プロキシは`grok-image`と`gemini-image`の変換以外のプロトコル変換・プロバイダーアダプターを提供しません。また、webhook受信・署名検証、Administration API操作、レート制限、プロキシ自身の認証、TLS終端も提供しません。`featherless`モードのAPIキー管理はクライアント側のみです。プロキシ側でのキー管理やホワイトリスト管理APIは提供しません。
+上記の中継動作に加えて、プロキシは`grok-image`・`grok-image-edit`・`gemini-image`の変換以外のプロトコル変換・プロバイダーアダプターを提供しません。また、webhook受信・署名検証、Administration API操作、レート制限、プロキシ自身の認証、TLS終端も提供しません。`featherless`モードのAPIキー管理はクライアント側のみです。プロキシ側でのキー管理やホワイトリスト管理APIは提供しません。
 
 ## セキュリティ
 
@@ -562,6 +642,10 @@ curl -s 'https://api.featherless.ai/v1/models?per_page=100' | jq -r '.data[].id'
 プロキシ自身が出すエラーメッセージは`NICHELLM_LANGUAGE`に応じてローカライズされます(既定は英語、`ja`で日本語)。
 
 ## 変更履歴
+
+### v1.5.0(2026-09-17)
+
+- `grok-image-edit`モードを追加: Grok(xAI)の画像編集(`POST /v1/images/edits`)をOpenAI互換インターフェースとして提供します。OpenAI式の`multipart/form-data`編集リクエストをxAIのJSON編集APIへ変換し、ファイルパートはbase64 data URI化(`image`/`image[]`→`image`/`images`)、OpenAI専用パラメータの除去、`aspect_ratio`/`resolution`既定値の補完、`created`の補完を行います。`GET /v1/models`と`GET /v1/image-generation-models`は無変換で透過します。これにより、素のxAI APIではmultipart形式を理由に利用できないOpenAI SDKクライアント(`images.edit()`を含む)とOpen WebUIがGrokで画像編集できるようになります。maskはxAIにサポートがないためHTTP 400で明示的に拒否します。
 
 ### v1.4.3(2026-09-16)
 

@@ -41,6 +41,15 @@ from niche_llm_proxy.grok_image import (
     classify_request,
     handle_grok_image_generations,
 )
+from niche_llm_proxy.grok_image_edit import (
+    RequestKind as GrokImageEditRequestKind,
+)
+from niche_llm_proxy.grok_image_edit import (
+    classify_request as classify_grok_image_edit_request,
+)
+from niche_llm_proxy.grok_image_edit import (
+    handle_grok_image_edit_edits,
+)
 from niche_llm_proxy.i18n import translate
 from niche_llm_proxy.image_relay import TransformError
 from niche_llm_proxy.logging_feature import ExchangeLog, LoggingRuntime
@@ -55,18 +64,20 @@ from niche_llm_proxy.passthrough import (
     upstream_error_detail,
 )
 
-PROXY_VERSION = "1.4.3"
+PROXY_VERSION = "1.5.0"
 """Proxy release version reported by the health endpoint and startup log."""
 
 _FORWARDED_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"]
 
 _UNSUPPORTED_PATH_MESSAGES = {
     "grok-image": "This path is not supported in 'grok-image' mode.",
+    "grok-image-edit": "This path is not supported in 'grok-image-edit' mode.",
     "gemini-image": "This path is not supported in 'gemini-image' mode.",
 }
 
 _REJECT_ROUTE_EVENTS = {
     "grok-image": "grok_image_route",
+    "grok-image-edit": "grok_image_edit_route",
     "gemini-image": "gemini_image_route",
 }
 
@@ -140,6 +151,20 @@ def create_app(
                 )
             if kind in (RequestKind.UNSUPPORTED_PATH, RequestKind.METHOD_NOT_ALLOWED):
                 return _reject_image_route(logging_runtime, request, kind, "grok-image")
+        elif config.listener.mode == "grok-image-edit":
+            kind = classify_grok_image_edit_request(request.url.path, request.method)
+            if kind is GrokImageEditRequestKind.EDITS:
+                exchange = _new_exchange(logging_runtime, request)
+                return await handle_grok_image_edit_edits(
+                    config, exchange, upstream_transport, request
+                )
+            if kind in (
+                GrokImageEditRequestKind.UNSUPPORTED_PATH,
+                GrokImageEditRequestKind.METHOD_NOT_ALLOWED,
+            ):
+                return _reject_image_route(
+                    logging_runtime, request, kind, "grok-image-edit"
+                )
         elif config.listener.mode == "gemini-image":
             kind = classify_gemini_request(request.url.path, request.method)
             if kind is GeminiRequestKind.GENERATIONS:
@@ -422,7 +447,7 @@ async def _single_chunk(body: bytes) -> AsyncIterator[bytes]:
 def _reject_image_route(
     logging_runtime: LoggingRuntime | None,
     request: Request,
-    kind: RequestKind | GeminiRequestKind,
+    kind: RequestKind | GeminiRequestKind | GrokImageEditRequestKind,
     mode: str,
 ) -> JSONResponse:
     """Reject a route that an image listener mode does not relay."""
