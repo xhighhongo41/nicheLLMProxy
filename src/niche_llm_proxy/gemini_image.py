@@ -175,7 +175,7 @@ async def handle_gemini_image_generations(
         upstream_transport,
         request,
         GEMINI_GENERATIONS_PATH,
-        transform_request=lambda body: transform_request_body(
+        transform_request=lambda body, content_type: transform_request_body(
             body, config.listener.gemini_image
         ),
         transform_response=ensure_created,

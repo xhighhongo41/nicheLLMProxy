@@ -25,7 +25,8 @@ from niche_llm_proxy.passthrough import (
 
 _LOGGER = logging.getLogger(__name__)
 
-BodyTransform = Callable[[bytes], bytes]
+RequestTransform = Callable[[bytes, str | None], bytes]
+ResponseTransform = Callable[[bytes], bytes]
 QueryTransform = Callable[[str | None], str | None]
 
 
@@ -65,17 +66,22 @@ async def relay_upstream(
     request: Request,
     upstream_path: str,
     *,
-    transform_request: BodyTransform | None = None,
-    transform_response: BodyTransform | None = None,
+    transform_request: RequestTransform | None = None,
+    transform_response: ResponseTransform | None = None,
     transform_query: QueryTransform | None = None,
+    upstream_content_type: str | None = None,
     error_event: str,
 ) -> Response:
     """Relay a request to the upstream with optional body transformations.
 
     The request body is sent unchanged when ``transform_request`` is None,
-    which supports pass-through relays such as model listings. The response
-    body is transformed only for upstream 200 responses. The query string is
-    forwarded unchanged when ``transform_query`` is None.
+    which supports pass-through relays such as model listings. Transforms
+    receive the request body and its Content-Type header value (None when
+    absent). The response body is transformed only for upstream 200
+    responses. The query string is forwarded unchanged when
+    ``transform_query`` is None. The forwarded Content-Type is replaced with
+    ``upstream_content_type`` when it is set; otherwise the original header
+    is forwarded unchanged.
     """
 
     body = await _read_request_body(request, exchange)
@@ -84,7 +90,7 @@ async def relay_upstream(
         upstream_body = body
     else:
         try:
-            upstream_body = transform_request(body)
+            upstream_body = transform_request(body, request.headers.get("content-type"))
         except TransformError as error:
             if exchange is not None:
                 exchange.fail(error_event, error)
@@ -107,6 +113,13 @@ async def relay_upstream(
         for name, value in prepare_request_headers(request.headers, config.upstream.api_key)
         if name.lower() not in (b"content-length", b"accept-encoding")
     ]
+    if upstream_content_type is not None:
+        forwarded_headers = [
+            (name, value)
+            for name, value in forwarded_headers
+            if name.lower() != b"content-type"
+        ]
+        forwarded_headers.append((b"content-type", upstream_content_type.encode("latin-1")))
     query = request.url.query
     if transform_query is not None:
         query = transform_query(query)
